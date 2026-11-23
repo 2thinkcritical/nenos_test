@@ -1,7 +1,7 @@
 [project]
-name = "ai-engeneer-test-task"
+name = "docx-semantic-form-filler"
 version = "0.1.0"
-description = "Add your description here"
+description = "Fill DOCX forms from JSON using context-aware field mapping and format-conscious document editing."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
