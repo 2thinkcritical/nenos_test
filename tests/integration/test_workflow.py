@@ -112,3 +112,23 @@ def test_end_to_end_workflow(mock_chat_openai, tmp_path, capsys, serialized):
 
     assert table.cell(2, 0).text == "Development"
     assert table.cell(2, 1).text == "1000"
+
+
+@patch("field_mapper.ChatOpenAI")
+def test_custom_output_path(mock_model, tmp_path, monkeypatch):
+    doc = Document()
+    doc.add_paragraph("Name: ______")
+    source = tmp_path / "source.docx"
+    doc.save(source)
+    data = tmp_path / "input.json"
+    data.write_text('{"name":"DEMO Alex"}')
+    target = tmp_path / "nested" / "result.docx"
+    _, fields, _ = __import__("docx_analyzer").get_all_placeholders(doc)
+    pid = __import__("field_mapper")._placeholder_id(fields[0])
+    mock_model.return_value.invoke.return_value.content = json.dumps(
+        [{"id": pid, "value": "DEMO Alex", "used_json_keys": ["name"]}]
+    )
+    monkeypatch.setattr(sys, "argv", ["main.py", str(source), str(data), "--output", str(target)])
+    main()
+    assert Document(target).paragraphs[0].text == "Name: DEMO Alex"
+    assert not (tmp_path / "resources").exists()

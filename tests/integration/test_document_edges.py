@@ -54,3 +54,35 @@ def test_header_blanks_are_scanned_once():
     doc.sections[0].header.paragraphs[0].text = "Name: ______"
     _, fields, _ = get_all_placeholders(doc)
     assert len(fields) == 1
+
+
+def test_overflow_rows_are_inserted_before_totals(tmp_path):
+    doc = Document()
+    table = doc.add_table(rows=4, cols=2)
+    table.cell(0, 0).text = "Item"
+    table.cell(0, 1).text = "Amount"
+    table.cell(3, 0).text = "TOTAL"
+    table.cell(3, 1).text = "60"
+    info = TableInfo(0, ["Item", "Amount"], [1, 2], "Items")
+    rows = [{"Item": "A", "Amount": 10}, {"Item": "B", "Amount": 20}, {"Item": "C", "Amount": 30}]
+    fill_document(doc, [], {}, {"items": rows}, [info], table_key_mapping={0: "items"})
+    output = tmp_path / "total.docx"
+    doc.save(output)
+    assert [row.cells[0].text for row in Document(output).tables[0].rows] == ["Item", "A", "B", "C", "TOTAL"]
+    assert Document(output).tables[0].rows[-1].cells[1].text == "60"
+
+
+@pytest.mark.parametrize("semantic", [False, True])
+def test_null_cells_are_empty_and_zero_is_preserved(tmp_path, semantic):
+    doc = Document()
+    table = doc.add_table(rows=3, cols=2)
+    table.cell(0, 0).text = "Item"
+    table.cell(0, 1).text = "Amount"
+    info = TableInfo(0, ["Item", "Amount"], [1, 2], "Items")
+    rows = [{"Item": "A", "Amount": None}, {"Item": "B", "Amount": 0}]
+    columns = {0: {0: "Item", 1: "Amount"}} if semantic else None
+    fill_document(doc, [], {}, {"items": rows}, [info], table_key_mapping={0: "items"}, column_mappings=columns)
+    output = tmp_path / "null.docx"
+    doc.save(output)
+    amounts = [row.cells[1].text for row in Document(output).tables[0].rows[1:]]
+    assert amounts == ["", "0"]

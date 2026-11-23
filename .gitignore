@@ -39,3 +39,8 @@ Thumbs.db
 # Generated documents and Office lock files
 *.filled.docx
 ~$*
+
+# Reproducible evaluation outputs (published previews live in docs/examples)
+evaluation/output/
+evaluation/live-output/
+evaluation/previews/
