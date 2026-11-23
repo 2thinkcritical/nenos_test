@@ -3,7 +3,7 @@ revision = 2
 requires-python = ">=3.13"
 
 [[package]]
-name = "ai-engeneer-test-task"
+name = "docx-semantic-form-filler"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
