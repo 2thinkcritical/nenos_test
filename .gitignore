@@ -31,3 +31,11 @@ docx_full_log.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Local configuration templates may be shared; real values must stay local.
+.env.*
+!.env.example
+
+# Generated documents and Office lock files
+*.filled.docx
+~$*

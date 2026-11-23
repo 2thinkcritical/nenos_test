@@ -1,78 +1,46 @@
-# Project Architecture and Implementation Strategy Analysis
+# Architecture and implementation
 
-Here is a detailed breakdown of the architectural approach and recommended implementation strategy.
+The application has a sequential analyze → map → fill → report pipeline. Its purpose is to adapt existing forms without requiring authors to rename every blank to a source-data key. The model is used for semantic decisions; document traversal and editing remain explicit Python code.
 
-## 1. Architectural Approach
+## Boundaries
 
-The solution adopts an **Agentic/Semantic pipeline architecture**. Instead of relying on rigid template engines (like Jinja2 or Mustache) that require the DOCX template to have specific variable names matching the data (e.g., `{{customer_name}}`), this system uses **Large Language Models (LLMs)** to bridge the gap between the document's visual structure and the data.
+`main.py` loads a DOCX and a JSON object, invokes each stage, prints unresolved fields and unused source keys, writes a report, and saves a filled copy. `--help` works without input files. Missing input files, invalid JSON, and a non-object JSON root produce actionable CLI errors. Corrupt DOCX archives and upstream API errors are not fully normalized into a single error interface.
 
-### Core Philosophy
--   **Decoupling**: The document template and the JSON data structure are completely decoupled. They do not need to share naming conventions.
--   **Semantic Reasoning**: The system understands "context". If a line says "Signed by: ______", the system infers that a name is needed there, even if the placeholder is just underscores.
--   **In-Place Modification**: The system modifies the existing DOCX binary structure rather than generating a new document from scratch, ensuring 100% preservation of complex layouts, headers, and styles.
+`docx_analyzer.py` describes blanks with `PlaceholderInfo` and data tables with `TableInfo`. The descriptions include nearby text, paragraph/run positions, table coordinates, section context, and the original character offset. The shared `placeholder_id()` function gives the mapper and filler the same identity, including when two identical blanks occur in one run.
 
-### High-Level Pipeline
-The data flow follows a strictly sequential 4-stage pipeline:
+`field_mapper.py` sends batches of up to ten field descriptions together with the source JSON to the configured OpenAI model. Separate requests match tables to arrays and columns to object keys. Response parsing accepts an array of objects, including a fenced JSON response. Unknown IDs, columns, source keys, and invalid field value shapes are rejected; unresolved fields stay blank. These checks validate the output contract, not semantic truth.
 
-1.  **Analysis (Scanner)**: The system scans the raw DOCX file to identify all "fillable" areas (placeholders) and structural elements (tables).
-2.  **Semantic Mapping (Reasoner)**: It extracts the text surrounding each placeholder and sends it to an LLM along with the JSON data. The LLM decides *exactly* what value belongs in each spot.
-3.  **Data Processing (Transformer)**: Complex data types (tables, checkboxes, multi-line strings) are processed to match the document's format.
-4.  **Execution (Filler)**: The system injects the determined values into the specific XML nodes of the document, adjusting the internal structure (e.g., creating new paragraphs) as needed.
+`docx_filler.py` updates existing runs when possible and uses XML operations for split runs, paragraph insertion, and row cloning. Replacements within a paragraph are applied from right to left so earlier character offsets remain valid. Table cells are addressed by paragraph before applying replacements. Checkboxes are textual `|_|` markers; selecting a later checkbox does not change an earlier unselected one.
 
----
+## Table strategy
 
-## 2. Implementation Strategy
+The orchestrator collects native JSON arrays and strings that decode to arrays. The model proposes a table-to-array mapping; object arrays receive a separate column mapping. If those mappings are unavailable, the filler can fall back to normalized header/key matching, including Romanian diacritics and word-prefix heuristics. This fallback is useful but can choose the wrong field when labels are ambiguous.
 
-The implementation is divided into three distinct modules, each solving a specific class of problems.
+Rows beyond the template's allocated data rows are cloned from an existing row. Object values are converted to text; arrays of strings use an empty cell. This is intended for conventional data tables. Nested/merged layouts and heterogeneous arrays are not a general-purpose spreadsheet or Word form engine.
 
-### A. Document Analysis (`docx_analyzer.py`)
-**Strategy: Heuristic Pattern Recognition**
+## Caching and repeatability
 
-Instead of forcing users to add `{{brackets}}` to every field, the generalized implementation supports natural forms.
+| Cache | Inputs used in the key | Stored decisions |
+| --- | --- | --- |
+| Field mapping | Complete placeholder descriptions, source JSON, model name, cache version | Field values and reported source keys |
+| Table mapping | Table descriptions, array contents, model name, cache version | Table index → source key |
+| Column mapping | Column headers, available object keys, model name | Column index → object key |
 
--   **Detection Logic**: Uses Regex to find visual cues commonly used in forms:
-    -   Underscore lines (`______`)
-    -   dotted lines (`......`)
-    -   Unicode ellipses (`…`)
-    -   Checkboxes (`|_|`)
--   **Context Extraction**: This is the most critical step. For every placeholder found, the analyzer extracts:
-    -   **Immediate Context**: Text immediately before/after the blank in the same paragraph.
-    -   **Surrounding Context**: Text from neighboring paragraphs to capture section headers (e.g., "SECTION 5: COST").
-    -   **Location Metadata**: Whether it's in a header, footer, table cell, or body text.
+Malformed or unreadable cache JSON is treated as a miss. Shape checks reject malformed field decisions and invalid table/column indices. Local cache files are plaintext and can contain filled values. Fixed filenames and direct writes make the current cache unsuitable for concurrent workers. Prompt-code changes and provider-side model-alias changes require manual cache clearing.
 
-### B. Semantic Mapping Engine (`field_mapper.py`)
-**Strategy: Batch LLM Processing with Caching**
+## Verification strategy
 
-This module acts as the "brain".
+The test suite exercises real DOCX traversal and mutation. Only the external model is replaced. End-to-end tests use source keys that differ from table headers, ensuring that semantic table and column mapping is exercised instead of silently succeeding through a header-match fallback. Both native and encoded JSON arrays are covered.
 
--   **Prompt Engineering**: The prompt doesn't just ask "fill this". It provides the *context* (e.g., "The placeholder is next to 'Total Cost:'") and the *entire JSON*, evaluating the best match semantically.
--   **Batching**: To handle large documents efficiently, placeholders are grouped into batches (e.g., 10 at a time) to reduce HTTP overhead and stay within context windows.
--   **Determinism & Caching**:
-    -   Since LLMs can be non-deterministic, a robust caching layer (SHA-256 hash of inputs) is implemented.
-    -   If the code runs twice with the same inputs, it skips the LLM and uses the cached JSON mapping. This is crucial for development speed and cost control.
--   **Table Strategy**:
-    -   **Step 1**: Match Table to Array. (Which JSON list corresponds to this table?)
-    -   **Step 2**: Match Column to Key. (Which object key corresponds to the "Unit Price" column?)
+Regression tests cover repeated blanks, selected checkboxes, malformed model response shapes, changes to document context/source-array schema/model selection, malformed cache JSON, CLI help, and JSON-root validation. An autouse fixture gives each test its own working directory, preventing deletion or reuse of a developer's cache and output documents.
 
-### C. Document Filler (`docx_filler.py`)
-**Strategy: Low-Level XML Manipulation**
+Ruff checks imports, common errors, and formatting; Mypy checks the project's annotated Python interfaces. CI uses the locked dependency set on Python 3.13. The suite does not call a live model or compare rendered Word pages, so it does not prove mapping accuracy or pagination for unseen documents.
 
-Standard libraries like `python-docx` are good for reading but often struggle with complex *in-place* editing. The implementation uses a hybrid approach:
+## Trade-offs and next steps
 
--   **Preserving Styles**: Instead of creating new runs, it modifies the `text` attribute of existing runs. This preserves bold/italic/font/size settings found in the template.
--   **The "Newline Problem"**: A common pitfall is inserting text with `\n` into a single Run, which DOCX ignores or renders poorly.
-    -   **Solution**: The implementation detects newlines and performs a "Paragraph Split". It clones the paragraph's XML properties (`<w:pPr>`) and creates new physical paragraphs for each line of text, ensuring proper spacing and indentation is inherited.
--   **Row Cloning**: For dynamic tables, the system identifies the "data row" and clones its XML element (`<w:tr>`) for every item in the JSON array, ensuring the filled table looks exactly like the template's example row.
+- **Flexible detection versus explicit templates:** visual-blank heuristics allow legacy forms, but need review when punctuation resembles a blank. Explicit template markers would trade flexibility for stronger guarantees.
+- **Generated values versus strict extraction:** semantic mapping can combine and transform source fields, but source-key attribution is model-reported. A stricter system would return validated extraction operations instead of free-form values.
+- **Existing layout versus layout guarantees:** editing in place reduces unnecessary reconstruction but cannot promise that inserted text will fit or preserve pagination.
+- **Local prototype versus service:** a service would need explicit output locations, isolated jobs, atomic cache writes, input limits, privacy controls, structured error handling, and model-quality evaluation.
 
----
-
-## 3. Key Components Summary
-
-| Component | File | Responsibility |
-| :--- | :--- | :--- |
-| **Orchestrator** | `main.py` | Loads files, manages the pipeline, handles CLI arguments and logging. |
-| **Analyzer** | `docx_analyzer.py` | Regex-based scanning. Returns `PlaceholderInfo` objects containing location and context. |
-| **Mapper** | `field_mapper.py` | Interacts with OpenAI API. manages `mapping.json` cache. Handles fuzzy logic. |
-| **Filler** | `docx_filler.py` | Manipulates `python-docx` objects and OXML elements. Writes the final `.docx` file. |
-
-
+These are boundaries of the implementation, not guarantees delegated to the model prompt.
