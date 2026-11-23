@@ -518,8 +518,8 @@ def _fill_data_tables(
             if data_idx >= len(table_info.data_row_indices):
                 if not table_info.data_row_indices:
                     break
-                _add_row_to_table(table, template_row)
-                row_idx = len(table.rows) - 1
+                row_idx = table_info.data_row_indices[-1] + data_idx - len(table_info.data_row_indices) + 1
+                _add_row_to_table(table, template_row, row_idx)
             else:
                 row_idx = table_info.data_row_indices[data_idx]
 
@@ -587,7 +587,8 @@ def _fill_table_row_from_mapping(table_row, column_mapping: dict[int, str], data
     for col_idx, cell in enumerate(table_row.cells):
         if col_idx in column_mapping:
             dk = column_mapping[col_idx]
-            val = str(data.get(dk, ""))
+            raw = data.get(dk)
+            val = "" if raw is None else str(raw)
             if val:
                 _set_cell_text(cell, val)
                 fills.append((col_idx, val, dk))
@@ -732,7 +733,8 @@ def _fill_table_row_from_dict(table_row, headers: list[str], data: dict) -> list
         if c_idx < len(headers):
             header = headers[c_idx]
             if header in header_to_key:
-                val = str(data.get(header_to_key[header], ""))
+                raw = data.get(header_to_key[header])
+                val = "" if raw is None else str(raw)
                 if val:
                     _set_cell_text(cell, val)
                     fills.append((c_idx, val, header_to_key[header]))
@@ -772,18 +774,12 @@ def _set_cell_text(cell, text: str) -> None:
         cell.text = text
 
 
-def _add_row_to_table(table, template_row):
+def _add_row_to_table(table, template_row, insert_index: int):
     """
     Add a new row to the table by cloning the template row.
     Preserves cell formatting (borders, shading, etc.) by copying the XML element.
     """
-    tbl = table._tbl
-
-    # Deep copy the row XML element (<w:tr>)
     new_tr = deepcopy(template_row)
-
-    # Append to the table XML
-    tbl.append(new_tr)
-
-    # Return the newly created Row object
-    return table.rows[-1]
+    # Keep totals, notes, and signature rows after the expandable data region.
+    table.rows[insert_index - 1]._tr.addnext(new_tr)
+    return table.rows[insert_index]

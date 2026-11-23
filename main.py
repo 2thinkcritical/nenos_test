@@ -16,9 +16,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from zipfile import BadZipFile
 
 from docx import Document
+from docx.opc.exceptions import PackageNotFoundError
 from dotenv import load_dotenv
+from lxml.etree import XMLSyntaxError
+from openai import OpenAIError
 
 import docx_filler
 from docx_analyzer import get_all_placeholders, save_analysis_report
@@ -28,40 +32,37 @@ from field_mapper import (
     map_table_columns_with_llm,
     map_table_to_json_key_with_llm,
 )
+from reporting import write_fill_report
 
 
-def main():
-    load_dotenv()
-
-    parser = argparse.ArgumentParser(description="Fill a DOCX form using JSON data and semantic field mapping.")
-    parser.add_argument("docx_path", type=Path, help="Path to the source DOCX template")
-    parser.add_argument("json_path", type=Path, help="Path to a JSON object with source data")
-    args = parser.parse_args()
-    docx_path = args.docx_path
-    json_path = args.json_path
-
+def run_pipeline(docx_path: Path, json_path: Path, output_path: Path | None = None) -> Path:
+    """Fill a copy of a template; callers choose the working directory for reports/cache."""
+    output_path = output_path or Path("resources") / f"{docx_path.stem}.filled.docx"
+    if output_path.resolve() == docx_path.resolve():
+        raise ValueError("Output must not overwrite the input DOCX template")
+    if output_path.suffix.lower() != ".docx":
+        raise ValueError("Output path must end with .docx")
     if not docx_path.is_file():
-        print(f"Error: DOCX file not found: {docx_path}")
-        sys.exit(1)
+        raise ValueError(f"DOCX file not found: {docx_path}")
     if not json_path.is_file():
-        print(f"Error: JSON file not found: {json_path}")
-        sys.exit(1)
+        raise ValueError(f"JSON file not found: {json_path}")
 
     # --- Load inputs ---
     print(f"[Main] Loading DOCX: {docx_path}")
-    doc = Document(str(docx_path))
+    try:
+        doc = Document(str(docx_path))
+    except (PackageNotFoundError, BadZipFile, XMLSyntaxError, ValueError) as error:
+        raise ValueError(f"Cannot read DOCX: {docx_path}. Provide a valid Word .docx file.") from error
 
     print(f"[Main] Loading JSON: {json_path}")
     try:
         with open(json_path, "r", encoding="utf-8") as f:
             json_data = json.load(f)
     except (OSError, ValueError) as error:
-        print(f"Error: Invalid JSON input: {error}")
-        sys.exit(1)
+        raise ValueError(f"Invalid JSON input: {error}") from error
 
     if not isinstance(json_data, dict):
-        print("Error: JSON root must be an object")
-        sys.exit(1)
+        raise ValueError("JSON root must be an object")
 
     json_keys = list(json_data.keys())
     print(f"[Main] JSON contains {len(json_keys)} fields")
@@ -152,133 +153,45 @@ def main():
         column_mappings=column_mappings,
     )
 
-    # --- Statistics & Logging ---
-    all_used_keys = mapper_used_keys.union(table_used_keys)
-    unused_keys = [k for k in json_keys if k not in all_used_keys]
-
-    # Determine unfilled placeholders
-    unfilled_placeholders = []
-    for p in placeholders:
-        pid = _placeholder_id(p)
-        val_obj = mapping.get(pid)
-        if not val_obj or val_obj.get("value") is None:
-            unfilled_placeholders.append(p)
-
-    # Determine unfilled data tables
-    filled_table_indices = {t_stat["table_index"] for t_stat in table_stats}
-    unfilled_tables = [t for t in data_tables if t.table_index not in filled_table_indices]
-
-    print("\n=== FINAL STATISTICS ===")
-    print(f"✅ Placeholders Filled: {filled_count}/{len(placeholders)}")
-
-    total_rows_filled = 0
-    for t_stat in table_stats:
-        print(f"📋 Table {t_stat['table_index']} ({t_stat['json_key']}): {t_stat['rows_filled']} rows filled")
-        total_rows_filled += t_stat["rows_filled"]
-
-    if unfilled_tables:
-        print(f"\n❌ Unfilled Data Tables: {len(unfilled_tables)}")
-        for t in unfilled_tables:
-            print(f"   - Table {t.table_index}: headers={t.headers[:3]}{'...' if len(t.headers) > 3 else ''}")
-
-    if unfilled_placeholders:
-        print(f"\n❌ Unfilled Placeholders: {len(unfilled_placeholders)}/{len(placeholders)}")
-        for p in unfilled_placeholders[:10]:
-            ctx = (p.context_before[-30:] + p.placeholder_pattern + p.context_after[:30]).strip()
-            print(f"   - [{p.location_type}] '{p.placeholder_pattern}' | {ctx[:80]}")
-        if len(unfilled_placeholders) > 10:
-            print(f"   ... and {len(unfilled_placeholders) - 10} more (see docx_full_log.txt for full list)")
-
-    print(f"\n🔑 JSON Fields Used: {len(all_used_keys)}/{len(json_keys)}")
-    print(f"⚠️ Unused JSON Fields: {len(unused_keys)}")
-    if unused_keys:
-        print(f"   (First 5 unused: {', '.join(unused_keys[:5])}...)")
-
-    # Append stats and DETAILED LOG to log file
-    with open("docx_full_log.txt", "a", encoding="utf-8") as f:
-        f.write("\n\n" + "=" * 60 + "\n")
-        f.write("FILLING STATISTICS\n")
-        f.write("=" * 60 + "\n")
-        f.write(f"Placeholders Filled: {filled_count}/{len(placeholders)}\n")
-        f.write(f"Total Table Rows Filled: {total_rows_filled}\n")
-        for t_stat in table_stats:
-            f.write(f"  - Table {t_stat['table_index']} ({t_stat['json_key']}): {t_stat['rows_filled']} rows\n")
-
-        # Unfilled data tables
-        f.write("\n" + "-" * 40 + "\n")
-        f.write(f"UNFILLED DATA TABLES: {len(unfilled_tables)}\n")
-        if unfilled_tables:
-            for t in unfilled_tables:
-                f.write(f"  - Table {t.table_index}\n")
-                f.write(f"    Headers: {t.headers}\n")
-                f.write(f"    Data row indices: {t.data_row_indices}\n")
-                f.write(f"    Context: {t.context[:200]}\n")
-        else:
-            f.write("  (all data tables were filled)\n")
-
-        # Unfilled placeholders — full list
-        f.write("\n" + "-" * 40 + "\n")
-        f.write(f"UNFILLED PLACEHOLDERS: {len(unfilled_placeholders)}/{len(placeholders)}\n")
-        if unfilled_placeholders:
-            for i, p in enumerate(unfilled_placeholders):
-                pid = _placeholder_id(p)
-                ctx = (p.context_before[-40:] + " [" + p.placeholder_pattern + "] " + p.context_after[:40]).strip()
-                f.write(f"  {i + 1}. ID: {pid}\n")
-                f.write(f"     Location: {p.location_type} | Section: {p.section_index} | HF: {p.header_footer_type}\n")
-                f.write(f"     Pattern: '{p.placeholder_pattern}'\n")
-                f.write(f"     Context: {ctx[:120]}\n")
-                if p.location_type == "table":
-                    f.write(f"     Table: {p.table_index}, Row: {p.row_index}, Cell: {p.cell_index}\n")
-                    f.write(f"     Column Header: '{p.column_header}'\n")
-                elif p.location_type == "paragraph":
-                    f.write(f"     Paragraph: {p.paragraph_index}, Run: {p.run_index}\n")
-                f.write(f"     Surrounding: {p.surrounding_context[:120]}\n")
-        else:
-            f.write("  (all placeholders were filled)\n")
-
-        f.write("\n" + "-" * 40 + "\n")
-        f.write("JSON USAGE\n")
-        f.write(f"Total Fields: {len(json_keys)}\n")
-        f.write(f"Used Fields:  {len(all_used_keys)}\n")
-        f.write(f"Unused Fields: {len(unused_keys)}\n")
-        if unused_keys:
-            f.write("Unused Keys List:\n")
-            for k in unused_keys:
-                f.write(f"  - {k}\n")
-
-        # DETAILED LOGGING
-        f.write("\n\n" + "=" * 60 + "\n")
-        f.write("DETAILED FILL LOG (Item by Item)\n")
-        f.write("=" * 60 + "\n")
-
-        # Log Placeholders
-        f.write("\n[PLACEHOLDERS]\n")
-        for log in fill_log:
-            if log["type"] == "placeholder" or log["type"] == "placeholder_table":
-                # Format: [P] {id} | Val: "{val}" | Src: {src}
-                line = f"[P] ID: {log['id']} | Value: {log['value']!r} | Source: {log['source']}"
-                if "context" in log:
-                    line += f" | Context: {log['context'].strip()[:50]}..."
-                f.write(line + "\n")
-
-        # Log Table Cells
-        f.write("\n[TABLE DATA]\n")
-        for log in fill_log:
-            if log["type"] == "table_cell":
-                # Format: [T] T{idx} R{r} C{c} | Val: "{val}" | Src: {src}
-                line = f"[T] Table {log['table_idx']} Row {log['row']} Col {log['col']} | Value: {log['value']!r} | Source: {log['source']}"
-                f.write(line + "\n")
+    write_fill_report(
+        placeholders=placeholders,
+        data_tables=data_tables,
+        mapping=mapping,
+        json_keys=json_keys,
+        mapper_used_keys=mapper_used_keys,
+        table_used_keys=table_used_keys,
+        filled_count=filled_count,
+        table_stats=table_stats,
+        fill_log=fill_log,
+        report_path=Path("docx_full_log.txt"),
+    )
 
     # --- Step 4: Save output ---
-    output_dir = Path("resources")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_name = f"{docx_path.stem}.filled.docx"
-    output_path = output_dir / output_name
-
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(output_path))
     print(f"\n[Main] ✅ Saved filled document: {output_path}")
     print(f"[Main] Original: {docx_path}")
     print(f"[Main] Output:   {output_path}")
+    return output_path
+
+
+def main() -> None:
+    load_dotenv()
+    parser = argparse.ArgumentParser(description="Fill a DOCX form using JSON data and semantic field mapping.")
+    parser.add_argument("docx_path", type=Path, help="Path to the source DOCX template")
+    parser.add_argument("json_path", type=Path, help="Path to a JSON object with source data")
+    parser.add_argument("--output", type=Path, help="Output DOCX path; defaults to resources/<template>.filled.docx")
+    args = parser.parse_args()
+    try:
+        run_pipeline(args.docx_path, args.json_path, args.output)
+    except OpenAIError:
+        print(
+            "Error: Model request failed. Check your API key, model access, network, and usage limits. No completed document was saved."
+        )
+        sys.exit(1)
+    except (ValueError, OSError) as error:
+        print(f"Error: {error}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
