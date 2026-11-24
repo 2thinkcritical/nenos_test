@@ -141,7 +141,7 @@ def run_pipeline(docx_path: Path, json_path: Path, output_path: Path | None = No
                         col_map = map_table_columns_with_llm(
                             table_info.table_index,
                             table_info.headers,
-                            list(arr[0].keys()),
+                            list(dict.fromkeys(key for row in arr if isinstance(row, dict) for key in row)),
                         )
                         column_mappings[table_info.table_index] = col_map
 
