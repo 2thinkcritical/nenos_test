@@ -132,3 +132,27 @@ def test_custom_output_path(mock_model, tmp_path, monkeypatch):
     main()
     assert Document(target).paragraphs[0].text == "Name: DEMO Alex"
     assert not (tmp_path / "resources").exists()
+
+
+@patch("field_mapper.ChatOpenAI")
+def test_sparse_array_includes_keys_from_later_rows(mock_model, tmp_path):
+    from types import SimpleNamespace
+
+    from main import run_pipeline
+
+    doc = Document()
+    table = doc.add_table(rows=3, cols=2)
+    table.cell(0, 0).text, table.cell(0, 1).text = "Item", "Amount"
+    source, data, target = tmp_path / "source.docx", tmp_path / "data.json", tmp_path / "out.docx"
+    doc.save(source)
+    data.write_text(json.dumps({"items": [{"item": "A"}, {"item": "B", "amount": 0}]}))
+    replies = iter(
+        [
+            [{"table_index": 0, "json_key": "items"}],
+            [{"column_index": 0, "dict_key": "item"}, {"column_index": 1, "dict_key": "amount"}],
+        ]
+    )
+    mock_model.return_value.invoke.side_effect = lambda messages: SimpleNamespace(content=json.dumps(next(replies)))
+    run_pipeline(source, data, target)
+    reopened = Document(target).tables[0]
+    assert [[cell.text for cell in row.cells] for row in reopened.rows[1:]] == [["A", ""], ["B", "0"]]
