@@ -34,7 +34,7 @@ The test suite exercises real DOCX traversal and mutation. Only the external mod
 
 Regression tests cover repeated blanks, selected checkboxes, malformed model response shapes, changes to document context/source-array schema/model selection, malformed cache JSON, CLI help, and JSON-root validation. An autouse fixture gives each test its own working directory, preventing deletion or reuse of a developer's cache and output documents.
 
-Ruff checks imports, common errors, and formatting; Mypy checks the project's annotated Python interfaces. CI uses the locked dependency set on Python 3.13. The unit suite does not call a live model. The versioned evaluation corpus separately checks twelve synthetic forms using authored response fixtures; an opt-in live mode records exact-document matches, requests, tokens, and elapsed time. A dedicated CI workflow renders four before/after examples in an isolated LibreOffice profile. These checks do not prove live-model accuracy or pagination for unseen documents.
+Ruff checks imports, common errors, and formatting; Mypy checks the project's annotated Python interfaces. CI uses the locked dependency set on Python 3.13. The unit suite does not call a live model. The versioned evaluation corpus separately checks the versioned synthetic forms using authored response fixtures; an opt-in live mode records exact-document matches, requests, tokens, and elapsed time. A dedicated CI workflow renders four before/after examples in an isolated LibreOffice profile. These checks do not prove live-model accuracy or pagination for unseen documents.
 
 ## Trade-offs and next steps
 
