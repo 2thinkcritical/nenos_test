@@ -156,3 +156,36 @@ def test_marker_data_row_is_filled_under_multirow_header(tmp_path):
         ("Notes", "Notes"),
         ("", ""),
     ]
+
+
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        (["A", "B"], [["A", ""], ["B", ""]]),
+        ([{"Item": "A", "Note": "FIRST NOTE"}, {"Item": "B"}], [["A", "FIRST NOTE"], ["B", ""]]),
+    ],
+)
+def test_array_owned_markers_do_not_receive_scalar_values(tmp_path, rows, expected):
+    doc = Document()
+    table = doc.add_table(rows=3, cols=2)
+    table.cell(0, 0).text, table.cell(0, 1).text = "Item", "Note"
+    table.cell(1, 0).text = table.cell(1, 1).text = "______"
+    table.cell(2, 0).text = "TOTAL"
+    _, fields, tables = get_all_placeholders(doc)
+    scalar = {_placeholder_id(field): {"value": "SCALAR VALUE", "used_keys": ["note"]} for field in fields}
+    fill_document(doc, fields, scalar, {"items": rows, "note": "SCALAR VALUE"}, tables, table_key_mapping={0: "items"})
+    target = tmp_path / "markers.docx"
+    doc.save(target)
+    actual = [[cell.text for cell in row.cells] for row in Document(target).tables[0].rows]
+    assert actual == [["Item", "Note"], *expected, ["TOTAL", ""]]
+
+
+def test_unmatched_marker_table_keeps_scalar_mapping():
+    doc = Document()
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text, table.cell(0, 1).text = "Name", "Note"
+    table.cell(1, 0).text = "______"
+    _, fields, tables = get_all_placeholders(doc)
+    scalar = {_placeholder_id(fields[0]): {"value": "DEMO Alex", "used_keys": ["name"]}}
+    fill_document(doc, fields, scalar, {"name": "DEMO Alex"}, tables)
+    assert table.cell(1, 0).text == "DEMO Alex"

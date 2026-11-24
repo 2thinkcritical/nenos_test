@@ -20,7 +20,7 @@ The deterministic baseline is **12/12 exact document-content matches**. This mea
 uv run python -m evaluation.run --mode live --allow-api --output-dir evaluation/live-output
 ```
 
-`--allow-api` is required. Live mode uses the same forms and expected outputs with the configured `OPENAI_MODEL`, bypasses warm-cache effects, and records document exact-match rate, model name, elapsed time, number of requests, and provider-reported input/output tokens. Estimated monetary cost is left null because it depends on current provider pricing and billing details. Supply token totals to your own billing calculation; no price is assumed.
+`--allow-api` is required. Live mode uses the same forms and expected outputs with the configured `OPENAI_MODEL`, bypasses warm-cache effects, and records document exact-match rate, model name, elapsed time, logical model invocation attempts, successful responses, and provider-reported input/output tokens. Provider initialization/transport failures are unscored and reported separately from content mismatches. Token totals are null when usage reporting is incomplete. A run with no scored cases has no accuracy value. Estimated monetary cost is left null because it depends on current provider pricing and billing details. Supply token totals to your own billing calculation; no price is assumed.
 
 No live-model accuracy result is published here: a live run has not been performed for this release. The small corpus is a regression/evaluation starting point, not a representative production dataset. Unexpected layouts and semantically ambiguous forms need additional labeled examples.
 
