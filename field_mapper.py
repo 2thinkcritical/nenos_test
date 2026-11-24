@@ -346,7 +346,11 @@ def map_table_to_json_key_with_llm(
     keys_desc = {}
     for key, data in array_keys.items():
         if data and isinstance(data[0], dict):
-            keys_desc[key] = {"type": "array_of_dicts", "dict_keys": list(data[0].keys()), "count": len(data)}
+            keys_desc[key] = {
+                "type": "array_of_dicts",
+                "dict_keys": list(dict.fromkeys(key for row in data if isinstance(row, dict) for key in row)),
+                "count": len(data),
+            }
         elif data:
             keys_desc[key] = {"type": "array_of_strings", "sample": data[:3], "count": len(data)}
         else:

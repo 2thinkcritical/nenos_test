@@ -6,7 +6,7 @@ This is a command-line prototype built around Romanian procurement forms. Its ar
 
 ## Try the reproducible demo
 
-No API key is needed to exercise twelve synthetic forms end to end:
+No API key is needed to exercise thirteen synthetic forms end to end:
 
 ```sh
 git clone https://github.com/2thinkcritical/nenos_test.git
@@ -15,7 +15,7 @@ uv sync --frozen
 uv run python -m evaluation.run --mode fixture
 ```
 
-This produces before/after DOCX files and a comparison report under `evaluation/output/`. The current baseline is **12/12 document-content matches with authored response fixtures**. This validates the pipeline on these examples; live-model semantic accuracy is not measured by fixture mode.
+This produces before/after DOCX files and a comparison report under `evaluation/output/`. The current baseline is **13/13 document-content matches with authored response fixtures**. This validates the pipeline on these examples; live-model semantic accuracy is not measured by fixture mode.
 
 See the [rendered before/after gallery](docs/examples/README.md) and the [evaluation protocol](evaluation/README.md), including opt-in live runs with token and latency reporting.
 
