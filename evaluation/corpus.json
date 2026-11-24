@@ -1,0 +1,552 @@
+[
+  {
+    "id": "company-and-date",
+    "paragraphs": [
+      "Service agreement",
+      "Company: ______",
+      "Date: ......"
+    ],
+    "data": {
+      "legal_name": "DEMO Example Ltd",
+      "signed_on": "2026-11-23"
+    },
+    "decisions": [
+      {
+        "field": 0,
+        "value": "DEMO Example Ltd",
+        "keys": [
+          "legal_name"
+        ]
+      },
+      {
+        "field": 1,
+        "value": "2026-11-23",
+        "keys": [
+          "signed_on"
+        ]
+      }
+    ],
+    "expected": {
+      "paragraphs": [
+        "Service agreement",
+        "Company: DEMO Example Ltd",
+        "Date: 2026-11-23"
+      ],
+      "tables": []
+    }
+  },
+  {
+    "id": "repeated-blanks",
+    "paragraphs": [
+      "Contact form",
+      "Name: ______ Address: ______"
+    ],
+    "data": {
+      "contact": "DEMO Alex",
+      "location": "Demo Street"
+    },
+    "decisions": [
+      {
+        "field": 0,
+        "value": "DEMO Alex",
+        "keys": [
+          "contact"
+        ]
+      },
+      {
+        "field": 1,
+        "value": "Demo Street",
+        "keys": [
+          "location"
+        ]
+      }
+    ],
+    "expected": {
+      "paragraphs": [
+        "Contact form",
+        "Name: DEMO Alex Address: Demo Street"
+      ],
+      "tables": []
+    }
+  },
+  {
+    "id": "selected-checkbox",
+    "paragraphs": [
+      "Delivery options",
+      "|_| Standard |_| Express"
+    ],
+    "data": {
+      "delivery": "express"
+    },
+    "decisions": [
+      {
+        "field": 0,
+        "value": "UNCHECKED",
+        "keys": [
+          "delivery"
+        ]
+      },
+      {
+        "field": 1,
+        "value": "CHECKED",
+        "keys": [
+          "delivery"
+        ]
+      }
+    ],
+    "expected": {
+      "paragraphs": [
+        "Delivery options",
+        "|_| Standard |X| Express"
+      ],
+      "tables": []
+    }
+  },
+  {
+    "id": "multiline-note",
+    "paragraphs": [
+      "Delivery instructions",
+      "Notes: ______"
+    ],
+    "data": {
+      "note": "First line\nSecond line"
+    },
+    "decisions": [
+      {
+        "field": 0,
+        "value": "First line\nSecond line",
+        "keys": [
+          "note"
+        ]
+      }
+    ],
+    "expected": {
+      "paragraphs": [
+        "Delivery instructions",
+        "Notes: First line",
+        "Second line"
+      ],
+      "tables": []
+    }
+  },
+  {
+    "id": "hyperlink-prefix",
+    "paragraphs": [
+      "Registration",
+      " Name: ______"
+    ],
+    "hyperlink": "Instructions",
+    "data": {
+      "name": "DEMO Alex"
+    },
+    "decisions": [
+      {
+        "field": 0,
+        "value": "DEMO Alex",
+        "keys": [
+          "name"
+        ]
+      }
+    ],
+    "expected": {
+      "paragraphs": [
+        "Registration",
+        "Instructions Name: DEMO Alex"
+      ],
+      "tables": []
+    }
+  },
+  {
+    "id": "unresolved-blank",
+    "paragraphs": [
+      "Incomplete form",
+      "Tax reference: ______"
+    ],
+    "data": {
+      "company": "DEMO Example Ltd"
+    },
+    "decisions": [
+      {
+        "field": 0,
+        "value": null,
+        "keys": []
+      }
+    ],
+    "expected": {
+      "paragraphs": [
+        "Incomplete form",
+        "Tax reference: ______"
+      ],
+      "tables": []
+    }
+  },
+  {
+    "id": "header-field",
+    "paragraphs": [
+      "Review record",
+      "No body blanks"
+    ],
+    "header": "Reviewer: ______",
+    "data": {
+      "reviewer": "DEMO Morgan"
+    },
+    "decisions": [
+      {
+        "field": 0,
+        "value": "DEMO Morgan",
+        "keys": [
+          "reviewer"
+        ]
+      }
+    ],
+    "expected": {
+      "paragraphs": [
+        "Review record",
+        "No body blanks"
+      ],
+      "tables": [],
+      "headers": [
+        "Reviewer: DEMO Morgan"
+      ]
+    }
+  },
+  {
+    "id": "romanian-labels",
+    "paragraphs": [
+      "Formular demonstrativ",
+      "Denumire ofertant: ______",
+      "Data: ......"
+    ],
+    "data": {
+      "supplier": "DEMO Furnizor SRL",
+      "date": "2026-11-23"
+    },
+    "decisions": [
+      {
+        "field": 0,
+        "value": "DEMO Furnizor SRL",
+        "keys": [
+          "supplier"
+        ]
+      },
+      {
+        "field": 1,
+        "value": "2026-11-23",
+        "keys": [
+          "date"
+        ]
+      }
+    ],
+    "expected": {
+      "paragraphs": [
+        "Formular demonstrativ",
+        "Denumire ofertant: DEMO Furnizor SRL",
+        "Data: 2026-11-23"
+      ],
+      "tables": []
+    }
+  },
+  {
+    "id": "table-before-total",
+    "paragraphs": [
+      "Service schedule",
+      "Agreed services"
+    ],
+    "table": [
+      [
+        "Service",
+        "Amount"
+      ],
+      [
+        "",
+        ""
+      ],
+      [
+        "",
+        ""
+      ],
+      [
+        "TOTAL",
+        "60"
+      ]
+    ],
+    "data": {
+      "services": [
+        {
+          "offering": "A",
+          "amount_ron": 10
+        },
+        {
+          "offering": "B",
+          "amount_ron": 20
+        },
+        {
+          "offering": "C",
+          "amount_ron": 30
+        }
+      ]
+    },
+    "decisions": [],
+    "table_replies": [
+      [
+        {
+          "table_index": 0,
+          "json_key": "services"
+        }
+      ],
+      [
+        {
+          "column_index": 0,
+          "dict_key": "offering"
+        },
+        {
+          "column_index": 1,
+          "dict_key": "amount_ron"
+        }
+      ]
+    ],
+    "expected": {
+      "paragraphs": [
+        "Service schedule",
+        "Agreed services"
+      ],
+      "tables": [
+        [
+          [
+            "Service",
+            "Amount"
+          ],
+          [
+            "A",
+            "10"
+          ],
+          [
+            "B",
+            "20"
+          ],
+          [
+            "C",
+            "30"
+          ],
+          [
+            "TOTAL",
+            "60"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "id": "null-and-zero",
+    "paragraphs": [
+      "Service schedule",
+      "Agreed services"
+    ],
+    "table": [
+      [
+        "Service",
+        "Amount"
+      ],
+      [
+        "",
+        ""
+      ],
+      [
+        "",
+        ""
+      ]
+    ],
+    "data": {
+      "services": [
+        {
+          "offering": "A",
+          "amount_ron": null
+        },
+        {
+          "offering": "B",
+          "amount_ron": 0
+        }
+      ]
+    },
+    "decisions": [],
+    "table_replies": [
+      [
+        {
+          "table_index": 0,
+          "json_key": "services"
+        }
+      ],
+      [
+        {
+          "column_index": 0,
+          "dict_key": "offering"
+        },
+        {
+          "column_index": 1,
+          "dict_key": "amount_ron"
+        }
+      ]
+    ],
+    "expected": {
+      "paragraphs": [
+        "Service schedule",
+        "Agreed services"
+      ],
+      "tables": [
+        [
+          [
+            "Service",
+            "Amount"
+          ],
+          [
+            "A",
+            ""
+          ],
+          [
+            "B",
+            "0"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "id": "native-semantic-columns",
+    "paragraphs": [
+      "Service schedule",
+      "Agreed services"
+    ],
+    "table": [
+      [
+        "Service",
+        "Amount"
+      ],
+      [
+        "",
+        ""
+      ],
+      [
+        "",
+        ""
+      ]
+    ],
+    "data": {
+      "services": [
+        {
+          "offering": "Consulting",
+          "amount_ron": "500"
+        },
+        {
+          "offering": "Development",
+          "amount_ron": "1000"
+        }
+      ]
+    },
+    "decisions": [],
+    "table_replies": [
+      [
+        {
+          "table_index": 0,
+          "json_key": "services"
+        }
+      ],
+      [
+        {
+          "column_index": 0,
+          "dict_key": "offering"
+        },
+        {
+          "column_index": 1,
+          "dict_key": "amount_ron"
+        }
+      ]
+    ],
+    "expected": {
+      "paragraphs": [
+        "Service schedule",
+        "Agreed services"
+      ],
+      "tables": [
+        [
+          [
+            "Service",
+            "Amount"
+          ],
+          [
+            "Consulting",
+            "500"
+          ],
+          [
+            "Development",
+            "1000"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "id": "encoded-semantic-columns",
+    "paragraphs": [
+      "Service schedule",
+      "Agreed services"
+    ],
+    "table": [
+      [
+        "Service",
+        "Amount"
+      ],
+      [
+        "",
+        ""
+      ],
+      [
+        "",
+        ""
+      ]
+    ],
+    "data": {
+      "services": "[{\"offering\": \"Consulting\", \"amount_ron\": \"500\"}, {\"offering\": \"Development\", \"amount_ron\": \"1000\"}]"
+    },
+    "decisions": [],
+    "table_replies": [
+      [
+        {
+          "table_index": 0,
+          "json_key": "services"
+        }
+      ],
+      [
+        {
+          "column_index": 0,
+          "dict_key": "offering"
+        },
+        {
+          "column_index": 1,
+          "dict_key": "amount_ron"
+        }
+      ]
+    ],
+    "expected": {
+      "paragraphs": [
+        "Service schedule",
+        "Agreed services"
+      ],
+      "tables": [
+        [
+          [
+            "Service",
+            "Amount"
+          ],
+          [
+            "Consulting",
+            "500"
+          ],
+          [
+            "Development",
+            "1000"
+          ]
+        ]
+      ]
+    }
+  }
+]

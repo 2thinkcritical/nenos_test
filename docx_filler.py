@@ -6,12 +6,53 @@ from docx.document import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from docx_analyzer import PlaceholderInfo, TableInfo, paragraph_runs
+from docx_analyzer import CELL_MARKER_RE, PlaceholderInfo, TableInfo, paragraph_runs
 from docx_analyzer import placeholder_id as _placeholder_id
 
 # Regex for finding placeholders
 CHECKBOX_RE = re.compile(r"\|_\|")
 ANY_BLANK_RE = re.compile(r"_+")
+
+
+def _array_inputs(json_data: dict) -> dict:
+    arrays = {}
+    for key, value in json_data.items():
+        if isinstance(value, list):
+            arrays[key] = value
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                continue
+            if isinstance(parsed, list):
+                arrays[key] = parsed
+    return arrays
+
+
+def exclude_array_placeholders(
+    placeholders: list[PlaceholderInfo],
+    data_tables: list[TableInfo],
+    json_data: dict,
+    table_key_mapping: dict[int, str] | None = None,
+) -> list[PlaceholderInfo]:
+    """Array-owned data cells have one writer; unmatched tables retain scalar filling."""
+    arrays = _array_inputs(json_data)
+    owned: set[tuple[int, int]] = set()
+    for table in data_tables:
+        key = (table_key_mapping or {}).get(table.table_index)
+        if key not in arrays:
+            key = _match_table_to_json_key(table, arrays)
+        if key in arrays:
+            owned.update((table.table_index, row) for row in table.data_row_indices)
+    return [
+        field
+        for field in placeholders
+        if not (
+            field.location_type == "table"
+            and field.header_footer_type == "body"
+            and (field.table_index, field.row_index) in owned
+        )
+    ]
 
 
 def fill_document(
@@ -38,6 +79,7 @@ def fill_document(
 
     if data_tables is None:
         data_tables = []
+    placeholders = exclude_array_placeholders(placeholders, data_tables, json_data, table_key_mapping)
 
     # 1. Fill text placeholders and checkboxes in paragraphs
     count, p_logs = _fill_paragraph_placeholders(doc, placeholders, mapping)
@@ -466,18 +508,7 @@ def _fill_data_tables(
     used_keys: set[str] = set()
     logs: list[dict] = []
 
-    # Find JSON keys that contain array data
-    array_keys = {}
-    for key, value in json_data.items():
-        if isinstance(value, list):
-            array_keys[key] = value
-        elif isinstance(value, str) and value.strip().startswith("["):
-            try:
-                parsed = json.loads(value)
-                if isinstance(parsed, list):
-                    array_keys[key] = parsed
-            except json.JSONDecodeError:
-                continue
+    array_keys = _array_inputs(json_data)
 
     if not array_keys:
         return stats, used_keys, logs
@@ -508,6 +539,14 @@ def _fill_data_tables(
 
         print(f"[Fill] Filling data table {table_info.table_index} with '{matched_key}' ({len(array_data)} rows)")
 
+        # Normalize markers before cloning, keeping the pristine array-owned region.
+        for row_idx in table_info.data_row_indices:
+            for cell in table.rows[row_idx].cells:
+                if cell.text.strip() and not CELL_MARKER_RE.sub("", cell.text).strip():
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph_runs(paragraph):
+                            for text_node in run._r.findall(qn("w:t")):
+                                text_node.text = ""
         # Snapshot before any values are written: overflow rows must not inherit data.
         template_row = (
             deepcopy(table.rows[table_info.data_row_indices[-1]]._tr) if table_info.data_row_indices else None
@@ -518,8 +557,8 @@ def _fill_data_tables(
             if data_idx >= len(table_info.data_row_indices):
                 if not table_info.data_row_indices:
                     break
-                _add_row_to_table(table, template_row)
-                row_idx = len(table.rows) - 1
+                row_idx = table_info.data_row_indices[-1] + data_idx - len(table_info.data_row_indices) + 1
+                _add_row_to_table(table, template_row, row_idx)
             else:
                 row_idx = table_info.data_row_indices[data_idx]
 
@@ -587,10 +626,10 @@ def _fill_table_row_from_mapping(table_row, column_mapping: dict[int, str], data
     for col_idx, cell in enumerate(table_row.cells):
         if col_idx in column_mapping:
             dk = column_mapping[col_idx]
-            val = str(data.get(dk, ""))
-            if val:
-                _set_cell_text(cell, val)
-                fills.append((col_idx, val, dk))
+            raw = data.get(dk)
+            val = "" if raw is None else str(raw)
+            _set_cell_text(cell, val)
+            fills.append((col_idx, val, dk))
     return fills
 
 
@@ -732,10 +771,10 @@ def _fill_table_row_from_dict(table_row, headers: list[str], data: dict) -> list
         if c_idx < len(headers):
             header = headers[c_idx]
             if header in header_to_key:
-                val = str(data.get(header_to_key[header], ""))
-                if val:
-                    _set_cell_text(cell, val)
-                    fills.append((c_idx, val, header_to_key[header]))
+                raw = data.get(header_to_key[header])
+                val = "" if raw is None else str(raw)
+                _set_cell_text(cell, val)
+                fills.append((c_idx, val, header_to_key[header]))
     return fills
 
 
@@ -772,18 +811,12 @@ def _set_cell_text(cell, text: str) -> None:
         cell.text = text
 
 
-def _add_row_to_table(table, template_row):
+def _add_row_to_table(table, template_row, insert_index: int):
     """
     Add a new row to the table by cloning the template row.
     Preserves cell formatting (borders, shading, etc.) by copying the XML element.
     """
-    tbl = table._tbl
-
-    # Deep copy the row XML element (<w:tr>)
     new_tr = deepcopy(template_row)
-
-    # Append to the table XML
-    tbl.append(new_tr)
-
-    # Return the newly created Row object
-    return table.rows[-1]
+    # Keep totals, notes, and signature rows after the expandable data region.
+    table.rows[insert_index - 1]._tr.addnext(new_tr)
+    return table.rows[insert_index]
