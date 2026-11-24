@@ -1,6 +1,6 @@
 # Evaluation
 
-The versioned corpus contains twelve small synthetic forms with independently authored expected document text and tables. It includes repeated blanks, checkboxes, Romanian labels, multiline text, hyperlink offsets, headers, semantic table columns, encoded arrays, null/zero cells, and expansion before a total row.
+The versioned corpus contains thirteen small synthetic forms with independently authored expected document text and tables. It includes repeated blanks, checkboxes, Romanian labels, multiline text, hyperlink offsets, headers, semantic table columns, encoded arrays, null/zero cells, and expansion before a total row.
 
 ## Reproduce application regressions without an API key
 
@@ -11,7 +11,7 @@ uv run python -m evaluation.run --mode fixture
 
 Fixture mode supplies **authored response fixtures** at the model boundary and checks the saved DOCX against the expected outputs. These are not recordings from a live model. Each case runs with a cold isolated cache. A failed comparison exits nonzero and records the difference in `evaluation/output/results.json`.
 
-The deterministic baseline is **12/12 exact document-content matches**. This measures the application's handling of these fixtures. It does **not** establish semantic model accuracy, document generality, or Word pagination fidelity. A regression test deliberately supplies a wrong field value and confirms the evaluator fails that case.
+The deterministic baseline is **13/13 exact document-content matches**. This measures the application's handling of these fixtures. It does **not** establish semantic model accuracy, document generality, or Word pagination fidelity. A regression test deliberately supplies a wrong field value and confirms the evaluator fails that case.
 
 ## Measure a real model explicitly
 

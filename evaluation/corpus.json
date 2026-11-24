@@ -548,5 +548,78 @@
         ]
       ]
     }
+  },
+  {
+    "id": "late-appearing-object-key",
+    "paragraphs": [
+      "Service schedule",
+      "Agreed services"
+    ],
+    "table": [
+      [
+        "Service",
+        "Amount"
+      ],
+      [
+        "",
+        ""
+      ],
+      [
+        "",
+        ""
+      ]
+    ],
+    "data": {
+      "services": [
+        {
+          "offering": "A"
+        },
+        {
+          "offering": "B",
+          "amount_ron": 0
+        }
+      ]
+    },
+    "decisions": [],
+    "table_replies": [
+      [
+        {
+          "table_index": 0,
+          "json_key": "services"
+        }
+      ],
+      [
+        {
+          "column_index": 0,
+          "dict_key": "offering"
+        },
+        {
+          "column_index": 1,
+          "dict_key": "amount_ron"
+        }
+      ]
+    ],
+    "expected": {
+      "paragraphs": [
+        "Service schedule",
+        "Agreed services"
+      ],
+      "tables": [
+        [
+          [
+            "Service",
+            "Amount"
+          ],
+          [
+            "A",
+            ""
+          ],
+          [
+            "B",
+            "0"
+          ]
+        ]
+      ]
+    }
   }
 ]
