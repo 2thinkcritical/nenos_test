@@ -86,3 +86,73 @@ def test_null_cells_are_empty_and_zero_is_preserved(tmp_path, semantic):
     doc.save(output)
     amounts = [row.cells[1].text for row in Document(output).tables[0].rows[1:]]
     assert amounts == ["", "0"]
+
+
+@pytest.mark.parametrize("semantic", [False, True])
+def test_null_replaces_a_table_cell_marker_with_empty_text(semantic):
+    doc = Document()
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Item"
+    table.cell(0, 1).text = "Amount"
+    table.cell(1, 1).text = "______"
+    columns = {0: {0: "Item", 1: "Amount"}} if semantic else None
+    fill_document(
+        doc,
+        [],
+        {},
+        {"items": [{"Item": "A", "Amount": None}]},
+        [TableInfo(0, ["Item", "Amount"], [1], "Items")],
+        table_key_mapping={0: "items"},
+        column_mappings=columns,
+    )
+    assert table.cell(1, 1).text == ""
+
+
+def test_data_region_stops_before_totals_and_trailing_spacers():
+    doc = Document()
+    table = doc.add_table(rows=5, cols=2)
+    table.cell(0, 0).text, table.cell(0, 1).text = "Item", "Amount"
+    table.cell(3, 0).text = "TOTAL"
+    _, _, tables = get_all_placeholders(doc)
+    assert tables[0].data_row_indices == [1, 2]
+    rows = [{"Item": "A"}, {"Item": "B"}, {"Item": "C"}]
+    fill_document(doc, [], {}, {"items": rows}, tables, table_key_mapping={0: "items"})
+    assert [row.cells[0].text for row in table.rows] == ["Item", "A", "B", "C", "TOTAL", ""]
+
+
+def test_table_with_single_blank_data_row():
+    doc = Document()
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text, table.cell(0, 1).text = "Item", "Amount"
+
+    _, _, tables = get_all_placeholders(doc)
+
+    assert len(tables) == 1
+    assert tables[0].data_row_indices == [1]
+
+
+def test_marker_data_row_is_filled_under_multirow_header(tmp_path):
+    doc = Document()
+    table = doc.add_table(rows=5, cols=2)
+    table.cell(0, 0).merge(table.cell(0, 1)).text = "Items sold"
+    table.cell(1, 0).text, table.cell(1, 1).text = "Item", "Amount"
+    table.cell(2, 0).text, table.cell(2, 1).text = "______", "......"
+    table.cell(3, 0).merge(table.cell(3, 1)).text = "Notes"
+    _, fields, tables = get_all_placeholders(doc)
+    assert len(tables) == 1
+    assert tables[0].headers == ["Item", "Amount"]
+    assert tables[0].data_row_indices == [2]
+    rows = [{"Item": "A", "Amount": None}, {"Item": "B", "Amount": 0}]
+    fill_document(doc, fields, {}, {"items": rows}, tables, table_key_mapping={0: "items"})
+
+    output = tmp_path / "markers.docx"
+    doc.save(output)
+    saved = Document(output).tables[0]
+    assert [tuple(cell.text for cell in row.cells) for row in saved.rows] == [
+        ("Items sold", "Items sold"),
+        ("Item", "Amount"),
+        ("A", ""),
+        ("B", "0"),
+        ("Notes", "Notes"),
+        ("", ""),
+    ]

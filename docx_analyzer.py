@@ -27,6 +27,7 @@ CHECKBOX_RE = re.compile(r"\|_\|")
 
 # Combined pattern for any blank
 ANY_BLANK_RE = re.compile(r"_{3,}|\.{4,}|…+\.?…*")
+CELL_MARKER_RE = re.compile(rf"{ANY_BLANK_RE.pattern}|{CHECKBOX_RE.pattern}")
 
 
 @dataclass
@@ -62,7 +63,7 @@ class TableInfo:
 
     table_index: int
     headers: list[str]
-    data_row_indices: list[int]  # row indices that are empty (data rows)
+    data_row_indices: list[int]  # first contiguous range of fillable rows after the header
     context: str  # surrounding text for LLM context
     section_index: int = -1
     header_footer_type: str = "body"
@@ -390,42 +391,27 @@ def extract_data_tables(doc: Document) -> list[TableInfo]:
     tables = []
 
     for t_idx, table in enumerate(doc.tables):
-        if len(table.rows) < 3:
-            continue
-
-        header_candidates = []  # list of (row_index, texts)
+        best_headers: list[str] = []
+        best_score = 0
         data_rows = []
-        found_data = False
 
         for r_idx, row in enumerate(table.rows):
-            texts = [cell.text.strip() for cell in row.cells]
-            all_empty = all(not t for t in texts)
-            has_content = any(t and not ANY_BLANK_RE.fullmatch(t) for t in texts)
+            cells = row.cells
+            texts = [cell.text.strip() for cell in cells]
+            labels = {text for text in texts if CELL_MARKER_RE.sub("", text).strip()}
+            if not labels and not any(cell.tables for cell in cells):
+                if best_headers:
+                    data_rows.append(r_idx)
+                continue
+            if data_rows:
+                break  # A total or note ends the fillable region.
+            if len(cells) > 1 and all(cell._tc is cells[0]._tc for cell in cells):
+                continue  # Skip titles spanning the entire table.
+            if len(labels) > best_score:
+                best_score = len(labels)
+                best_headers = texts
 
-            if has_content and not found_data:
-                # Skip rows where all cells are identical (merged row spanning all columns)
-                if len(set(texts)) == 1:
-                    continue
-                header_candidates.append((r_idx, texts))
-            elif all_empty and header_candidates:
-                found_data = True
-                data_rows.append(r_idx)
-            elif all_empty and found_data:
-                data_rows.append(r_idx)
-
-        if header_candidates and data_rows:
-            # Pick the header row with the most unique non-empty cells
-            # This prefers the detailed per-column row over merged header rows
-            best_headers = header_candidates[0][1]
-            best_score = 0
-            for _, texts in header_candidates:
-                non_empty = [t for t in texts if t]
-                unique_non_empty = set(non_empty)
-                score = len(unique_non_empty)
-                if score > best_score:
-                    best_score = score
-                    best_headers = texts
-
+        if data_rows:
             context = _get_table_context(doc, t_idx)
             tables.append(
                 TableInfo(

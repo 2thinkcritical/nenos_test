@@ -14,8 +14,10 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from zipfile import BadZipFile
 
 from docx import Document
@@ -38,7 +40,10 @@ from reporting import write_fill_report
 def run_pipeline(docx_path: Path, json_path: Path, output_path: Path | None = None) -> Path:
     """Fill a copy of a template; callers choose the working directory for reports/cache."""
     output_path = output_path or Path("resources") / f"{docx_path.stem}.filled.docx"
-    if output_path.resolve() == docx_path.resolve():
+    resolved_output = output_path.resolve()
+    if resolved_output == docx_path.resolve() or (
+        output_path.exists() and docx_path.exists() and output_path.samefile(docx_path)
+    ):
         raise ValueError("Output must not overwrite the input DOCX template")
     if output_path.suffix.lower() != ".docx":
         raise ValueError("Output path must end with .docx")
@@ -51,7 +56,7 @@ def run_pipeline(docx_path: Path, json_path: Path, output_path: Path | None = No
     print(f"[Main] Loading DOCX: {docx_path}")
     try:
         doc = Document(str(docx_path))
-    except (PackageNotFoundError, BadZipFile, XMLSyntaxError, ValueError) as error:
+    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError, ValueError) as error:
         raise ValueError(f"Cannot read DOCX: {docx_path}. Provide a valid Word .docx file.") from error
 
     print(f"[Main] Loading JSON: {json_path}")
@@ -167,8 +172,14 @@ def run_pipeline(docx_path: Path, json_path: Path, output_path: Path | None = No
     )
 
     # --- Step 4: Save output ---
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(output_path))
+    resolved_output.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(dir=resolved_output.parent, prefix=".docx-fill-", suffix=".tmp", delete=False) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        doc.save(str(temporary_path))
+        os.replace(temporary_path, resolved_output)
+    finally:
+        temporary_path.unlink(missing_ok=True)
     print(f"\n[Main] ✅ Saved filled document: {output_path}")
     print(f"[Main] Original: {docx_path}")
     print(f"[Main] Output:   {output_path}")

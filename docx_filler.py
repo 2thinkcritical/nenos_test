@@ -589,9 +589,8 @@ def _fill_table_row_from_mapping(table_row, column_mapping: dict[int, str], data
             dk = column_mapping[col_idx]
             raw = data.get(dk)
             val = "" if raw is None else str(raw)
-            if val:
-                _set_cell_text(cell, val)
-                fills.append((col_idx, val, dk))
+            _set_cell_text(cell, val)
+            fills.append((col_idx, val, dk))
     return fills
 
 
@@ -735,9 +734,8 @@ def _fill_table_row_from_dict(table_row, headers: list[str], data: dict) -> list
             if header in header_to_key:
                 raw = data.get(header_to_key[header])
                 val = "" if raw is None else str(raw)
-                if val:
-                    _set_cell_text(cell, val)
-                    fills.append((c_idx, val, header_to_key[header]))
+                _set_cell_text(cell, val)
+                fills.append((c_idx, val, header_to_key[header]))
     return fills
 
 
