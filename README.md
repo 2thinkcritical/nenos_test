@@ -73,7 +73,7 @@ For the included example, outputs are relative to the directory where you run th
 | `.cache/mapping.json` | Field decisions and an input hash |
 | `.cache/table_mapping.json` | Table and column decisions with cache keys |
 
-Use `--output path/to/result.docx` to choose the destination. The CLI refuses to overwrite its source template. JSON null/missing table values stay empty; numeric zero is preserved. Table expansion inserts new rows before existing totals and notes.
+Use `--output path/to/result.docx` to choose the destination. The CLI checks file identity, including hard links and case aliases, to protect the source template, and saves through an atomic replacement so a failed write leaves an existing result intact. JSON null/missing table values stay empty; numeric zero is preserved. Table expansion inserts new rows before existing totals and notes.
 
 The default output filename depends on the template stem. Repeating a run with that stem overwrites the existing generated file. The log is replaced on each run, and the cache stores the latest field/table decisions rather than a historical audit trail.
 

@@ -6,12 +6,53 @@ from docx.document import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from docx_analyzer import PlaceholderInfo, TableInfo, paragraph_runs
+from docx_analyzer import CELL_MARKER_RE, PlaceholderInfo, TableInfo, paragraph_runs
 from docx_analyzer import placeholder_id as _placeholder_id
 
 # Regex for finding placeholders
 CHECKBOX_RE = re.compile(r"\|_\|")
 ANY_BLANK_RE = re.compile(r"_+")
+
+
+def _array_inputs(json_data: dict) -> dict:
+    arrays = {}
+    for key, value in json_data.items():
+        if isinstance(value, list):
+            arrays[key] = value
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                continue
+            if isinstance(parsed, list):
+                arrays[key] = parsed
+    return arrays
+
+
+def exclude_array_placeholders(
+    placeholders: list[PlaceholderInfo],
+    data_tables: list[TableInfo],
+    json_data: dict,
+    table_key_mapping: dict[int, str] | None = None,
+) -> list[PlaceholderInfo]:
+    """Array-owned data cells have one writer; unmatched tables retain scalar filling."""
+    arrays = _array_inputs(json_data)
+    owned: set[tuple[int, int]] = set()
+    for table in data_tables:
+        key = (table_key_mapping or {}).get(table.table_index)
+        if key not in arrays:
+            key = _match_table_to_json_key(table, arrays)
+        if key in arrays:
+            owned.update((table.table_index, row) for row in table.data_row_indices)
+    return [
+        field
+        for field in placeholders
+        if not (
+            field.location_type == "table"
+            and field.header_footer_type == "body"
+            and (field.table_index, field.row_index) in owned
+        )
+    ]
 
 
 def fill_document(
@@ -38,6 +79,7 @@ def fill_document(
 
     if data_tables is None:
         data_tables = []
+    placeholders = exclude_array_placeholders(placeholders, data_tables, json_data, table_key_mapping)
 
     # 1. Fill text placeholders and checkboxes in paragraphs
     count, p_logs = _fill_paragraph_placeholders(doc, placeholders, mapping)
@@ -466,18 +508,7 @@ def _fill_data_tables(
     used_keys: set[str] = set()
     logs: list[dict] = []
 
-    # Find JSON keys that contain array data
-    array_keys = {}
-    for key, value in json_data.items():
-        if isinstance(value, list):
-            array_keys[key] = value
-        elif isinstance(value, str) and value.strip().startswith("["):
-            try:
-                parsed = json.loads(value)
-                if isinstance(parsed, list):
-                    array_keys[key] = parsed
-            except json.JSONDecodeError:
-                continue
+    array_keys = _array_inputs(json_data)
 
     if not array_keys:
         return stats, used_keys, logs
@@ -508,6 +539,13 @@ def _fill_data_tables(
 
         print(f"[Fill] Filling data table {table_info.table_index} with '{matched_key}' ({len(array_data)} rows)")
 
+        # Normalize markers before cloning, keeping the pristine array-owned region.
+        for row_idx in table_info.data_row_indices:
+            for cell in table.rows[row_idx].cells:
+                if not CELL_MARKER_RE.sub("", cell.text).strip():
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph_runs(paragraph):
+                            run.text = ""
         # Snapshot before any values are written: overflow rows must not inherit data.
         template_row = (
             deepcopy(table.rows[table_info.data_row_indices[-1]]._tr) if table_info.data_row_indices else None

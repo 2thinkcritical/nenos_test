@@ -145,6 +145,11 @@ def run_pipeline(docx_path: Path, json_path: Path, output_path: Path | None = No
                         )
                         column_mappings[table_info.table_index] = col_map
 
+    placeholders = docx_filler.exclude_array_placeholders(placeholders, data_tables, json_data, table_key_mapping)
+    mapper_used_keys = {
+        key for field in placeholders for key in mapping.get(_placeholder_id(field), {}).get("used_keys", [])
+    }
+
     # --- Step 3: Fill the Document ---
     print("\n=== Step 3: Filling Document ===")
     # fill_document now returns fill_log
