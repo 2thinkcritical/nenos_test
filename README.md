@@ -4,6 +4,21 @@ Fill existing Word forms from JSON when the document's labels and source-data ke
 
 This is a command-line prototype built around Romanian procurement forms. Its architecture separates document analysis, semantic mapping, and document editing so each stage can be tested independently.
 
+## Try the reproducible demo
+
+No API key is needed to exercise twelve synthetic forms end to end:
+
+```sh
+git clone https://github.com/2thinkcritical/nenos_test.git
+cd nenos_test
+uv sync --frozen
+uv run python -m evaluation.run --mode fixture
+```
+
+This produces before/after DOCX files and a comparison report under `evaluation/output/`. The current baseline is **12/12 document-content matches with authored response fixtures**. This validates the pipeline on these examples; live-model semantic accuracy is not measured by fixture mode.
+
+See the [rendered before/after gallery](docs/examples/README.md) and the [evaluation protocol](evaluation/README.md), including opt-in live runs with token and latency reporting.
+
 ## Quick start
 
 Requires **Python 3.13+**, [uv](https://docs.astral.sh/uv/), and an OpenAI API key for uncached mappings.
@@ -27,6 +42,7 @@ For command-line help:
 
 ```sh
 uv run python main.py --help
+uv run python main.py template.docx data.json --output output/filled.docx
 ```
 
 ## Inputs and outputs
@@ -57,7 +73,9 @@ For the included example, outputs are relative to the directory where you run th
 | `.cache/mapping.json` | Field decisions and an input hash |
 | `.cache/table_mapping.json` | Table and column decisions with cache keys |
 
-The output filename depends on the template stem. Repeating a run with that stem overwrites the existing generated file. The log is replaced on each run, and the cache stores the latest field/table decisions rather than a historical audit trail.
+Use `--output path/to/result.docx` to choose the destination. The CLI checks file identity, including hard links and case aliases, to protect the source template, and saves through an atomic replacement so a failed write leaves an existing result intact. JSON null/missing table values stay empty; numeric zero is preserved. Table expansion inserts new rows before existing totals and notes.
+
+The default output filename depends on the template stem. Repeating a run with that stem overwrites the existing generated file. The log is replaced on each run, and the cache stores the latest field/table decisions rather than a historical audit trail.
 
 ## How it works
 
@@ -74,7 +92,8 @@ JSON ─────────────────────────
 
 | Module | Responsibility |
 | --- | --- |
-| `main.py` | CLI validation, orchestration, reporting, and output paths |
+| `main.py` | CLI validation, pipeline orchestration, and output paths |
+| `reporting.py` | Human-readable diagnostics and value-level fill report |
 | `docx_analyzer.py` | Locate blanks and tables; build context and stable field identities |
 | `field_mapper.py` | Call the model, validate response shapes/IDs, and cache decisions |
 | `docx_filler.py` | Replace text, handle text checkboxes, and populate table rows |
@@ -112,6 +131,6 @@ The mapper proposes values; a human must review the generated document before it
 
 Detection is heuristic and may miss blanks or misclassify ordinary punctuation. Formatting is preserved where editing existing runs and cloning rows allows it; there is no guarantee of identical pagination or complex layout preservation. Text checkboxes are supported, not native Word form controls. Nested table addressing, text boxes, unusual fields, and repeated multi-line edits within one paragraph are not covered by the current regression suite.
 
-The cache improves repeatability for unchanged inputs but does not make new LLM calls deterministic. Model alias changes and prompt-code changes are not automatically detected by the cache; clear it after updating prompts or when re-evaluating decisions. API failures can interrupt a run. Concurrent processes sharing the same working directory are not supported: logs and cache files use fixed names.
+The cache improves repeatability for unchanged inputs but does not make new LLM calls deterministic. Model alias changes and prompt-code changes are not automatically detected by the cache; clear it after updating prompts or when re-evaluating decisions. API failures stop the run with a sanitized CLI error; corrupt DOCX files receive an actionable error. No completed document is saved when model mapping fails. Concurrent processes sharing the same working directory are not supported: logs and cache files use fixed names.
 
-No performance benchmark, production reliability claim, or repository-wide license is declared.
+The versioned evaluation corpus and measured fixture baseline are published in `evaluation/`. No live-model accuracy, production reliability claim, or repository-wide license is declared.
