@@ -189,3 +189,35 @@ def test_unmatched_marker_table_keeps_scalar_mapping():
     scalar = {_placeholder_id(fields[0]): {"value": "DEMO Alex", "used_keys": ["name"]}}
     fill_document(doc, fields, scalar, {"name": "DEMO Alex"}, tables)
     assert table.cell(1, 0).text == "DEMO Alex"
+
+
+def test_array_marker_cleanup_preserves_unmapped_drawing(tmp_path):
+    import base64
+    from io import BytesIO
+
+    from docx.shared import Inches
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZ0AAAAASUVORK5CYII="
+    )
+    doc = Document()
+    table = doc.add_table(rows=3, cols=2)
+    table.cell(0, 0).text, table.cell(0, 1).text = "Item", "Symbol"
+    table.cell(1, 0).text = "______"
+    table.cell(1, 1).paragraphs[0].add_run().add_picture(BytesIO(png), width=Inches(0.1))
+    table.cell(2, 0).text = "TOTAL"
+    _, fields, tables = get_all_placeholders(doc)
+    fill_document(
+        doc,
+        fields,
+        {},
+        {"items": [{"Item": "A"}]},
+        tables,
+        table_key_mapping={0: "items"},
+        column_mappings={0: {0: "Item"}},
+    )
+    target = tmp_path / "drawing.docx"
+    doc.save(target)
+    reopened = Document(target)
+    assert len(reopened.inline_shapes) == 1
+    assert reopened.tables[0].cell(1, 0).text == "A"

@@ -542,10 +542,11 @@ def _fill_data_tables(
         # Normalize markers before cloning, keeping the pristine array-owned region.
         for row_idx in table_info.data_row_indices:
             for cell in table.rows[row_idx].cells:
-                if not CELL_MARKER_RE.sub("", cell.text).strip():
+                if cell.text.strip() and not CELL_MARKER_RE.sub("", cell.text).strip():
                     for paragraph in cell.paragraphs:
                         for run in paragraph_runs(paragraph):
-                            run.text = ""
+                            for text_node in run._r.findall(qn("w:t")):
+                                text_node.text = ""
         # Snapshot before any values are written: overflow rows must not inherit data.
         template_row = (
             deepcopy(table.rows[table_info.data_row_indices[-1]]._tr) if table_info.data_row_indices else None
