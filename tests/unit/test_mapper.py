@@ -2,7 +2,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from field_mapper import PlaceholderInfo, TableInfo, map_fields_with_llm, map_table_to_json_key_with_llm
+from docx_form_filler.analyzer import PlaceholderInfo, TableInfo
+from docx_form_filler.mapper import map_fields, map_tables_to_arrays
 
 
 @pytest.fixture
@@ -49,7 +50,7 @@ def mock_tables():
     ]
 
 
-@patch("field_mapper.ChatOpenAI")
+@patch("docx_form_filler.llm.ChatOpenAI")
 def test_map_fields_with_llm(mock_chat_openai, mock_placeholders):
     # Setup mock response
     mock_llm_instance = MagicMock()
@@ -65,15 +66,15 @@ def test_map_fields_with_llm(mock_chat_openai, mock_placeholders):
 
     json_data = {"name": "John Doe", "check": True}
 
-    mapping = map_fields_with_llm(mock_placeholders, ["name", "check"], json_data)
+    mapping = map_fields(mock_placeholders, json_data)
 
     assert len(mapping) == 2
     assert mapping["body_para_0_run0_______"]["value"] == "John Doe"
     assert mapping["body_para_1_run0_|_|"]["value"] == "CHECKED"
 
 
-@patch("field_mapper.ChatOpenAI")
-def test_map_table_to_json_key_with_llm(mock_chat_openai, mock_tables):
+@patch("docx_form_filler.llm.ChatOpenAI")
+def test_map_tables_to_arrays(mock_chat_openai, mock_tables):
     mock_llm_instance = MagicMock()
     mock_chat_openai.return_value = mock_llm_instance
 
@@ -86,7 +87,7 @@ def test_map_table_to_json_key_with_llm(mock_chat_openai, mock_tables):
 
     array_keys = {"items": [{"item": "Apple", "cost": "10"}]}
 
-    mapping = map_table_to_json_key_with_llm(mock_tables, array_keys)
+    mapping = map_tables_to_arrays(mock_tables, array_keys)
 
     assert len(mapping) == 1
     assert mapping[0] == "items"
@@ -95,19 +96,19 @@ def test_map_table_to_json_key_with_llm(mock_chat_openai, mock_tables):
 @pytest.mark.parametrize(
     "response", ["{}", "null", "[{}]", '[{"id":"unknown","value":"invented","used_json_keys":[]}]']
 )
-@patch("field_mapper.ChatOpenAI")
+@patch("docx_form_filler.llm.ChatOpenAI")
 def test_invalid_field_responses_leave_fields_unfilled(mock_chat_openai, mock_placeholders, response):
     mock_chat_openai.return_value.invoke.return_value.content = response
-    mapping = map_fields_with_llm(mock_placeholders, ["name"], {"name": "Alex"})
+    mapping = map_fields(mock_placeholders, {"name": "Alex"})
     assert len(mapping) == 2
     assert all(item["value"] is None for item in mapping.values())
 
 
 @pytest.mark.parametrize("response", ["null", "{}", "[{}]", '[{"table_index":99,"json_key":"items"}]'])
-@patch("field_mapper.ChatOpenAI")
+@patch("docx_form_filler.llm.ChatOpenAI")
 def test_invalid_table_responses_do_not_create_mappings(mock_chat_openai, mock_tables, response):
     mock_chat_openai.return_value.invoke.return_value.content = response
-    assert map_table_to_json_key_with_llm(mock_tables, {"items": [{"item": "Apple"}]}) == {}
+    assert map_tables_to_arrays(mock_tables, {"items": [{"item": "Apple"}]}) == {}
 
 
 @pytest.mark.parametrize(
@@ -117,10 +118,10 @@ def test_invalid_table_responses_do_not_create_mappings(mock_chat_openai, mock_t
         {"id": "body_para_0_run0_______", "value": "Alex"},
     ],
 )
-@patch("field_mapper.ChatOpenAI")
+@patch("docx_form_filler.llm.ChatOpenAI")
 def test_invalid_checkbox_or_missing_source_list_stays_unfilled(mock_chat_openai, mock_placeholders, item):
     import json
 
     mock_chat_openai.return_value.invoke.return_value.content = json.dumps([item])
-    mapping = map_fields_with_llm(mock_placeholders, ["name", "check"], {"name": "Alex", "check": True})
+    mapping = map_fields(mock_placeholders, {"name": "Alex", "check": True})
     assert all(value["value"] is None for value in mapping.values())

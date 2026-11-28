@@ -1,16 +1,16 @@
 import json
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from docx import Document
 
-from main import main
+from docx_form_filler.analyzer import analyze_document, placeholder_id
+from docx_form_filler.cli import main
 
 
 @pytest.mark.parametrize("serialized", [False, True], ids=["native-array", "encoded-array"])
-@patch("field_mapper.ChatOpenAI")
+@patch("docx_form_filler.llm.ChatOpenAI")
 def test_end_to_end_workflow(mock_chat_openai, tmp_path, capsys, serialized):
     # 1. Setup Input Files
     docx_path = tmp_path / "test_form.docx"
@@ -42,8 +42,7 @@ def test_end_to_end_workflow(mock_chat_openai, tmp_path, capsys, serialized):
     }
     if serialized:
         data["services"] = json.dumps(data["services"])
-    with open(json_path, "w") as f:
-        json.dump(data, f)
+    json_path.write_text(json.dumps(data))
 
     # 2. Mock LLM Responses
     mock_llm = MagicMock()
@@ -51,7 +50,7 @@ def test_end_to_end_workflow(mock_chat_openai, tmp_path, capsys, serialized):
 
     # We need to handle multiple calls to invoke:
     # 1. map_fields_with_llm (batches)
-    # 2. map_table_to_json_key_with_llm
+    # 2. map_tables_to_arrays
     # 3. map_table_columns_with_llm
 
     def side_effect(messages):
@@ -60,7 +59,7 @@ def test_end_to_end_workflow(mock_chat_openai, tmp_path, capsys, serialized):
         for m in messages:
             content_for_ids += m.content + "\n"
 
-        if "filling procurement documents" in messages[0].content:
+        if "DOCX placeholders to fill" in messages[1].content:
             # This is map_fields_with_llm
             # Parse the prompt to find the actual IDs being requested
             import re
@@ -76,10 +75,10 @@ def test_end_to_end_workflow(mock_chat_openai, tmp_path, capsys, serialized):
                     response_data.append({"id": pid, "value": "Acme Corp", "used_json_keys": ["provider"]})
 
             return MagicMock(content=json.dumps(response_data))
-        elif "match each table to the correct JSON key" in messages[0].content:
-            # This is map_table_to_json_key_with_llm
+        if messages[1].content.startswith("DOCX tables:"):
+            # This is map_tables_to_arrays
             return MagicMock(content=json.dumps([{"table_index": 0, "json_key": "services"}]))
-        elif "match each column to the correct dict key" in messages[0].content:
+        if messages[1].content.startswith("Table column headers"):
             # This is map_table_columns_with_llm
             return MagicMock(
                 content=json.dumps(
@@ -91,11 +90,10 @@ def test_end_to_end_workflow(mock_chat_openai, tmp_path, capsys, serialized):
     mock_llm.invoke.side_effect = side_effect
 
     # 3. Run Main
-    with patch.object(sys, "argv", ["main.py", str(docx_path), str(json_path)]):
+    with patch.object(sys, "argv", ["docx-fill", str(docx_path), str(json_path)]):
         main()
 
-    # Outputs belong to this test's isolated working directory.
-    output_file = Path("resources") / "test_form.filled.docx"
+    output_file = tmp_path / "test_form.filled.docx"
     assert output_file.exists()
 
     # 5. Verify Content
@@ -114,7 +112,7 @@ def test_end_to_end_workflow(mock_chat_openai, tmp_path, capsys, serialized):
     assert table.cell(2, 1).text == "1000"
 
 
-@patch("field_mapper.ChatOpenAI")
+@patch("docx_form_filler.llm.ChatOpenAI")
 def test_custom_output_path(mock_model, tmp_path, monkeypatch):
     doc = Document()
     doc.add_paragraph("Name: ______")
@@ -123,22 +121,22 @@ def test_custom_output_path(mock_model, tmp_path, monkeypatch):
     data = tmp_path / "input.json"
     data.write_text('{"name":"DEMO Alex"}')
     target = tmp_path / "nested" / "result.docx"
-    _, fields, _ = __import__("docx_analyzer").get_all_placeholders(doc)
-    pid = __import__("field_mapper")._placeholder_id(fields[0])
+    fields, _ = analyze_document(doc)
+    pid = placeholder_id(fields[0])
     mock_model.return_value.invoke.return_value.content = json.dumps(
         [{"id": pid, "value": "DEMO Alex", "used_json_keys": ["name"]}]
     )
-    monkeypatch.setattr(sys, "argv", ["main.py", str(source), str(data), "--output", str(target)])
+    monkeypatch.setattr(sys, "argv", ["docx-fill", str(source), str(data), "--output", str(target)])
     main()
     assert Document(target).paragraphs[0].text == "Name: DEMO Alex"
     assert not (tmp_path / "resources").exists()
 
 
-@patch("field_mapper.ChatOpenAI")
+@patch("docx_form_filler.llm.ChatOpenAI")
 def test_sparse_array_includes_keys_from_later_rows(mock_model, tmp_path):
     from types import SimpleNamespace
 
-    from main import run_pipeline
+    from docx_form_filler.pipeline import run_pipeline
 
     doc = Document()
     table = doc.add_table(rows=3, cols=2)

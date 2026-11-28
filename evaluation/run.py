@@ -11,25 +11,28 @@ import json
 import os
 import re
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.shared import RGBColor
 from dotenv import load_dotenv
+from langchain_core.messages import BaseMessage
 
-import field_mapper
-from docx_analyzer import get_all_placeholders, placeholder_id
-from main import run_pipeline
+from docx_form_filler import llm
+from docx_form_filler.analyzer import analyze_document, placeholder_id
+from docx_form_filler.pipeline import run_pipeline
 
 CASE_ID_RE = re.compile(r"[a-z0-9-]{1,80}")
 EXPECTED_PARTS = {"paragraphs", "tables", "headers"}
 
 
-def build_template(case: dict, target: Path) -> None:
+def build_template(case: dict[str, Any], target: Path) -> None:
     doc = Document()
     doc.core_properties.author = "Synthetic evaluation fixture"
     doc.core_properties.last_modified_by = "Synthetic evaluation fixture"
@@ -64,7 +67,7 @@ def build_template(case: dict, target: Path) -> None:
     doc.save(str(target))
 
 
-def document_contents(path: Path) -> dict:
+def document_contents(path: Path) -> dict[str, Any]:
     doc = Document(str(path))
     return {
         "paragraphs": [paragraph.text for paragraph in doc.paragraphs],
@@ -108,7 +111,7 @@ def _validate_corpus(corpus: object, corpus_path: Path, output_dir: Path) -> Non
             raise ValueError(f"Corpus case {index} must be an object")
         case_id = case.get("id")
         if not isinstance(case_id, str) or not CASE_ID_RE.fullmatch(case_id):
-            raise ValueError(f"Corpus case {index} ID must use 1–80 lowercase letters, digits, or hyphens")
+            raise ValueError(f"Corpus case {index} ID must use 1-80 lowercase letters, digits, or hyphens")
         if case_id in ids:
             raise ValueError(f"Duplicate corpus case ID: {case_id}")
         ids.add(case_id)
@@ -141,7 +144,7 @@ def _validate_corpus(corpus: object, corpus_path: Path, output_dir: Path) -> Non
             _validate_output_path(case_dir / name, output_dir, corpus_path)
 
 
-def evaluate(corpus_path: Path, output_dir: Path, mode: str = "fixture") -> dict:
+def evaluate(corpus_path: Path, output_dir: Path, mode: str = "fixture") -> dict[str, Any]:
     if mode not in {"fixture", "live"}:
         raise ValueError("Mode must be fixture or live")
     corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
@@ -150,7 +153,7 @@ def evaluate(corpus_path: Path, output_dir: Path, mode: str = "fixture") -> dict
     output_dir = output_dir.resolve()
     _validate_corpus(corpus, corpus_path, output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    original_factory = field_mapper.ChatOpenAI
+    original_factory = llm.ChatOpenAI  # captured before the per-case patch below
     api_calls = successful_responses = responses_with_usage = 0
     input_tokens = output_tokens = 0
     results = []
@@ -168,7 +171,7 @@ def evaluate(corpus_path: Path, output_dir: Path, mode: str = "fixture") -> dict
         # the positional identity here; do not derive expected values from output.
         replies = []
         if mode == "fixture":
-            _, fields, _ = get_all_placeholders(Document(template))
+            fields, _ = analyze_document(Document(template))
             if fields:
                 replies.append(
                     json.dumps(
@@ -188,7 +191,7 @@ def evaluate(corpus_path: Path, output_dir: Path, mode: str = "fixture") -> dict
         failure_stage = None
 
         class ObservedModel:
-            def __init__(self, _replay=replay, **kwargs):
+            def __init__(self, _replay: Iterator[str] = replay, **kwargs: Any) -> None:
                 nonlocal failure_stage
                 self.fixture_responses = _replay
                 try:
@@ -197,7 +200,7 @@ def evaluate(corpus_path: Path, output_dir: Path, mode: str = "fixture") -> dict
                     failure_stage = "model_initialization"
                     raise
 
-            def invoke(self, messages):
+            def invoke(self, messages: list[BaseMessage]) -> Any:
                 nonlocal \
                     api_calls, \
                     successful_responses, \
@@ -228,12 +231,12 @@ def evaluate(corpus_path: Path, output_dir: Path, mode: str = "fixture") -> dict
                     responses_with_usage += 1
                 return response
 
-        differences: list[str | dict] = []
+        differences: list[str | dict[str, Any]] = []
         with TemporaryDirectory(prefix="docx-evaluation-") as temporary:
             previous = Path.cwd()
             try:
                 os.chdir(temporary)  # Every case gets a cold, independent cache.
-                with patch.object(field_mapper, "ChatOpenAI", ObservedModel), contextlib.redirect_stdout(io.StringIO()):
+                with patch.object(llm, "ChatOpenAI", ObservedModel), contextlib.redirect_stdout(io.StringIO()):
                     run_pipeline(template, data, after)
                 actual = document_contents(after)
             except Exception as caught:
@@ -261,10 +264,10 @@ def evaluate(corpus_path: Path, output_dir: Path, mode: str = "fixture") -> dict
     passed = sum(item["passed"] for item in results)
     scored_cases = sum(item["scored"] for item in results)
     exact_match_rate = passed / scored_cases if scored_cases else None
-    usage_complete = mode == "fixture" or api_calls > 0 and responses_with_usage == api_calls
+    usage_complete = mode == "fixture" or (api_calls > 0 and responses_with_usage == api_calls)
     report = {
         "mode": mode,
-        "model": field_mapper._model_name() if mode == "live" else None,
+        "model": llm.model_name() if mode == "live" else None,
         "cases": len(corpus),
         "passed": passed,
         "scored_cases": scored_cases,

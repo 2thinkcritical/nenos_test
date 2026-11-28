@@ -1,15 +1,36 @@
 [project]
-name = "docx-semantic-form-filler"
-version = "0.1.0"
+name = "docx-form-filler"
+version = "0.2.0"
 description = "Fill DOCX forms from JSON using context-aware field mapping and format-conscious document editing."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
-    "langchain>=1.2.10",
+    "langchain-core>=1.2.10",
     "langchain-openai>=1.1.9",
-    "pydantic>=2.12.5",
+    "lxml>=5.0",
+    "openai>=2.0",
     "python-docx>=1.2.0",
     "python-dotenv>=1.2.1",
+]
+
+[project.scripts]
+docx-fill = "docx_form_filler.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/docx_form_filler"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.1",
 ]
 
 [tool.ruff]
@@ -17,22 +38,28 @@ target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B"]
-ignore = ["E501"]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "RET", "PT", "PTH", "RUF", "N"]
 
 [tool.mypy]
 python_version = "3.13"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
+strict = true
 ignore_missing_imports = true
-[dependency-groups]
-dev = [
-    "mypy>=1.19.1",
-    "pytest>=9.0.2",
-    "ruff>=0.15.1",
-]
+mypy_path = "src"
+packages = ["docx_form_filler", "evaluation"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
-pythonpath = "."
 testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--strict-markers"
+
+[tool.coverage.run]
+source = ["docx_form_filler"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

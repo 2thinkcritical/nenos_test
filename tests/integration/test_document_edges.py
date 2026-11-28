@@ -2,9 +2,8 @@ import pytest
 from docx import Document
 from docx.oxml import OxmlElement
 
-from docx_analyzer import TableInfo, get_all_placeholders
-from docx_filler import fill_document
-from field_mapper import _placeholder_id
+from docx_form_filler.analyzer import TableInfo, analyze_document, placeholder_id
+from docx_form_filler.filler import fill_document
 
 
 def test_hyperlink_text_does_not_shift_blank_replacement(tmp_path):
@@ -18,8 +17,8 @@ def test_hyperlink_text_does_not_shift_blank_replacement(tmp_path):
     hyperlink.append(run)
     paragraph._p.append(hyperlink)
     paragraph.add_run(" Name: ______")
-    _, fields, _ = get_all_placeholders(doc)
-    mapping = {_placeholder_id(fields[0]): {"value": "DEMO Alex", "used_keys": ["name"]}}
+    fields, _ = analyze_document(doc)
+    mapping = {placeholder_id(fields[0]): {"value": "DEMO Alex", "used_keys": ["name"]}}
     fill_document(doc, fields, mapping, {"name": "DEMO Alex"})
     output = tmp_path / "filled.docx"
     doc.save(output)
@@ -27,7 +26,7 @@ def test_hyperlink_text_does_not_shift_blank_replacement(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "rows,expected",
+    ("rows", "expected"),
     [
         (["First", "Second", "Third", "Fourth"], [("First", ""), ("Second", ""), ("Third", ""), ("Fourth", "")]),
         (
@@ -52,7 +51,7 @@ def test_overflow_rows_do_not_inherit_previous_values(tmp_path, rows, expected):
 def test_header_blanks_are_scanned_once():
     doc = Document()
     doc.sections[0].header.paragraphs[0].text = "Name: ______"
-    _, fields, _ = get_all_placeholders(doc)
+    fields, _ = analyze_document(doc)
     assert len(fields) == 1
 
 
@@ -113,7 +112,7 @@ def test_data_region_stops_before_totals_and_trailing_spacers():
     table = doc.add_table(rows=5, cols=2)
     table.cell(0, 0).text, table.cell(0, 1).text = "Item", "Amount"
     table.cell(3, 0).text = "TOTAL"
-    _, _, tables = get_all_placeholders(doc)
+    _, tables = analyze_document(doc)
     assert tables[0].data_row_indices == [1, 2]
     rows = [{"Item": "A"}, {"Item": "B"}, {"Item": "C"}]
     fill_document(doc, [], {}, {"items": rows}, tables, table_key_mapping={0: "items"})
@@ -125,7 +124,7 @@ def test_table_with_single_blank_data_row():
     table = doc.add_table(rows=2, cols=2)
     table.cell(0, 0).text, table.cell(0, 1).text = "Item", "Amount"
 
-    _, _, tables = get_all_placeholders(doc)
+    _, tables = analyze_document(doc)
 
     assert len(tables) == 1
     assert tables[0].data_row_indices == [1]
@@ -138,7 +137,7 @@ def test_marker_data_row_is_filled_under_multirow_header(tmp_path):
     table.cell(1, 0).text, table.cell(1, 1).text = "Item", "Amount"
     table.cell(2, 0).text, table.cell(2, 1).text = "______", "......"
     table.cell(3, 0).merge(table.cell(3, 1)).text = "Notes"
-    _, fields, tables = get_all_placeholders(doc)
+    fields, tables = analyze_document(doc)
     assert len(tables) == 1
     assert tables[0].headers == ["Item", "Amount"]
     assert tables[0].data_row_indices == [2]
@@ -159,7 +158,7 @@ def test_marker_data_row_is_filled_under_multirow_header(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "rows,expected",
+    ("rows", "expected"),
     [
         (["A", "B"], [["A", ""], ["B", ""]]),
         ([{"Item": "A", "Note": "FIRST NOTE"}, {"Item": "B"}], [["A", "FIRST NOTE"], ["B", ""]]),
@@ -171,8 +170,8 @@ def test_array_owned_markers_do_not_receive_scalar_values(tmp_path, rows, expect
     table.cell(0, 0).text, table.cell(0, 1).text = "Item", "Note"
     table.cell(1, 0).text = table.cell(1, 1).text = "______"
     table.cell(2, 0).text = "TOTAL"
-    _, fields, tables = get_all_placeholders(doc)
-    scalar = {_placeholder_id(field): {"value": "SCALAR VALUE", "used_keys": ["note"]} for field in fields}
+    fields, tables = analyze_document(doc)
+    scalar = {placeholder_id(field): {"value": "SCALAR VALUE", "used_keys": ["note"]} for field in fields}
     fill_document(doc, fields, scalar, {"items": rows, "note": "SCALAR VALUE"}, tables, table_key_mapping={0: "items"})
     target = tmp_path / "markers.docx"
     doc.save(target)
@@ -185,8 +184,8 @@ def test_unmatched_marker_table_keeps_scalar_mapping():
     table = doc.add_table(rows=2, cols=2)
     table.cell(0, 0).text, table.cell(0, 1).text = "Name", "Note"
     table.cell(1, 0).text = "______"
-    _, fields, tables = get_all_placeholders(doc)
-    scalar = {_placeholder_id(fields[0]): {"value": "DEMO Alex", "used_keys": ["name"]}}
+    fields, tables = analyze_document(doc)
+    scalar = {placeholder_id(fields[0]): {"value": "DEMO Alex", "used_keys": ["name"]}}
     fill_document(doc, fields, scalar, {"name": "DEMO Alex"}, tables)
     assert table.cell(1, 0).text == "DEMO Alex"
 
@@ -206,7 +205,7 @@ def test_array_marker_cleanup_preserves_unmapped_drawing(tmp_path):
     table.cell(1, 0).text = "______"
     table.cell(1, 1).paragraphs[0].add_run().add_picture(BytesIO(png), width=Inches(0.1))
     table.cell(2, 0).text = "TOTAL"
-    _, fields, tables = get_all_placeholders(doc)
+    fields, tables = analyze_document(doc)
     fill_document(
         doc,
         fields,

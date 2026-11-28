@@ -1,7 +1,8 @@
 import pytest
 from docx import Document
 
-from docx_filler import PlaceholderInfo, TableInfo, fill_document
+from docx_form_filler.analyzer import PlaceholderInfo, TableInfo
+from docx_form_filler.filler import fill_document
 
 
 @pytest.fixture
@@ -79,7 +80,7 @@ def test_fill_data_tables(tmp_path):
 
     fill_document(doc, [], {}, json_data, data_tables, table_key_mapping)
 
-    assert "Apple" == doc.tables[0].cell(1, 0).text
-    assert "10" == doc.tables[0].cell(1, 1).text
-    assert "Banana" == doc.tables[0].cell(2, 0).text
-    assert "20" == doc.tables[0].cell(2, 1).text
+    assert doc.tables[0].cell(1, 0).text == "Apple"
+    assert doc.tables[0].cell(1, 1).text == "10"
+    assert doc.tables[0].cell(2, 0).text == "Banana"
+    assert doc.tables[0].cell(2, 1).text == "20"
