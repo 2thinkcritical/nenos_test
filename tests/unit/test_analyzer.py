@@ -1,6 +1,6 @@
 from docx import Document
 
-from docx_analyzer import extract_placeholders_recursive
+from docx_form_filler.analyzer import analyze_document
 
 
 def test_extract_placeholders_paragraphs(tmp_path):
@@ -12,7 +12,7 @@ def test_extract_placeholders_paragraphs(tmp_path):
     doc.add_paragraph("Checkbox: |_|")
 
     # Run extraction
-    _, placeholders, tables = extract_placeholders_recursive(doc)
+    placeholders, _tables = analyze_document(doc)
 
     assert len(placeholders) == 3
 
@@ -39,7 +39,7 @@ def test_extract_placeholders_table(tmp_path):
     table.cell(1, 0).text = "Value: ____"
     table.cell(1, 1).text = "Check: |_|"
 
-    _, placeholders, tables = extract_placeholders_recursive(doc)
+    placeholders, _tables = analyze_document(doc)
 
     assert len(placeholders) == 2
 
@@ -70,7 +70,7 @@ def test_extract_data_tables(tmp_path):
     table.cell(3, 0).text = ""
     table.cell(3, 1).text = ""
 
-    _, placeholders, tables = extract_placeholders_recursive(doc)
+    _placeholders, tables = analyze_document(doc)
 
     assert len(tables) == 1
     t = tables[0]

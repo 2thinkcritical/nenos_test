@@ -4,13 +4,13 @@ The application has a sequential analyze → map → fill → report pipeline. I
 
 ## Boundaries
 
-`main.py` loads a DOCX and a JSON object, invokes each stage, prints unresolved fields and unused source keys, writes a report, and saves a filled copy. `--help` works without input files. Missing input files, invalid JSON, and a non-object JSON root produce actionable CLI errors. Corrupt DOCX files and provider failures receive actionable errors; raw provider exceptions are not printed. `--output` controls the destination and cannot target the source template. `reporting.py` owns human-readable diagnostics separately from orchestration.
+`pipeline.py` loads a DOCX and a JSON object, invokes each stage, prints unresolved fields and unused source keys, writes a report, and saves a filled copy. `cli.py` turns failures into exit status 1 with a one-line message on stderr; `--help` works without input files. Missing input files, invalid JSON, and a non-object JSON root produce actionable CLI errors. Corrupt DOCX files and provider failures receive actionable errors; raw provider exceptions are not printed. `--output` controls the destination and cannot target the source template. `reporting.py` owns human-readable diagnostics separately from orchestration.
 
-`docx_analyzer.py` describes blanks with `PlaceholderInfo` and data tables with `TableInfo`. The descriptions include nearby text, paragraph/run positions, table coordinates, section context, and the original character offset. The shared `placeholder_id()` function gives the mapper and filler the same identity, including when two identical blanks occur in one run.
+`analyzer.py` describes blanks with `PlaceholderInfo` and data tables with `TableInfo`. The descriptions include nearby text, paragraph/run positions, table coordinates, section context, and the original character offset. The shared `placeholder_id()` function gives the mapper and filler the same identity, including when two identical blanks occur in one run.
 
-`field_mapper.py` sends batches of up to ten field descriptions together with the source JSON to the configured OpenAI model. Separate requests match tables to arrays and columns to object keys. Response parsing accepts an array of objects, including a fenced JSON response. Unknown IDs, columns, source keys, and invalid field value shapes are rejected; unresolved fields stay blank. These checks validate the output contract, not semantic truth.
+`mapper.py` sends batches of up to ten field descriptions together with the source JSON to the configured OpenAI model. Separate requests match tables to arrays and columns to object keys. All model traffic goes through `llm.py`, which owns client settings (timeout, retries) and prompt files and parses a reply into untrusted objects, accepting a fenced JSON response. Unknown IDs, columns, source keys, and invalid field value shapes are rejected; unresolved fields stay blank. These checks validate the output contract, not semantic truth.
 
-`docx_filler.py` updates existing runs when possible and uses XML operations for split runs, paragraph insertion, and row cloning. Replacements within a paragraph are applied from right to left so earlier character offsets remain valid. Table cells are addressed by paragraph before applying replacements. Checkboxes are textual `|_|` markers; selecting a later checkbox does not change an earlier unselected one.
+`filler.py` updates existing runs when possible and uses XML operations for split runs, paragraph insertion, and row cloning. Replacements within a paragraph are applied from right to left so earlier character offsets remain valid. Table cells are addressed by paragraph before applying replacements. Checkboxes are textual `|_|` markers; selecting a later checkbox does not change an earlier unselected one.
 
 ## Table strategy
 
@@ -26,7 +26,7 @@ Rows beyond the template's allocated data rows are cloned from a pristine snapsh
 | Table mapping | Table descriptions, array contents, model name, cache version | Table index → source key |
 | Column mapping | Column headers, available object keys, model name | Column index → object key |
 
-Malformed or unreadable cache JSON is treated as a miss. Shape checks reject malformed field decisions and invalid table/column indices. Local cache files are plaintext and can contain filled values. Fixed filenames and direct writes make the current cache unsuitable for concurrent workers. Prompt-code changes and provider-side model-alias changes require manual cache clearing.
+Malformed or unreadable cache JSON is treated as a miss. Shape checks reject malformed field decisions and invalid table/column indices. Local cache files are plaintext and can contain filled values. Writes are atomic, but fixed filenames make the cache unsuitable for concurrent workers sharing a directory. Prompt-code changes and provider-side model-alias changes require manual cache clearing.
 
 ## Verification strategy
 

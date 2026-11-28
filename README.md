@@ -1,5 +1,7 @@
 # DOCX Semantic Form Filler
 
+[![CI](https://github.com/2thinkcritical/docx-form-filler/actions/workflows/ci.yml/badge.svg)](https://github.com/2thinkcritical/docx-form-filler/actions/workflows/ci.yml) ![Python 3.13](https://img.shields.io/badge/python-3.13-blue) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 Fill existing Word forms from JSON when the document's labels and source-data keys do not match exactly. The tool detects visual blanks, asks an OpenAI model to propose field and table mappings, then edits the document with `python-docx`.
 
 This is a command-line prototype built around Romanian procurement forms. Its architecture separates document analysis, semantic mapping, and document editing so each stage can be tested independently.
@@ -9,8 +11,8 @@ This is a command-line prototype built around Romanian procurement forms. Its ar
 No API key is needed to exercise thirteen synthetic forms end to end:
 
 ```sh
-git clone https://github.com/2thinkcritical/nenos_test.git
-cd nenos_test
+git clone https://github.com/2thinkcritical/docx-form-filler.git
+cd docx-form-filler
 uv sync --frozen
 uv run python -m evaluation.run --mode fixture
 ```
@@ -24,8 +26,8 @@ See the [rendered before/after gallery](docs/examples/README.md) and the [evalua
 Requires **Python 3.13+**, [uv](https://docs.astral.sh/uv/), and an OpenAI API key for uncached mappings.
 
 ```sh
-git clone https://github.com/2thinkcritical/nenos_test.git
-cd nenos_test
+git clone https://github.com/2thinkcritical/docx-form-filler.git
+cd docx-form-filler
 uv sync --frozen
 cp .env.example .env
 ```
@@ -33,7 +35,7 @@ cp .env.example .env
 Set `OPENAI_API_KEY` in your local `.env`, then run the included example:
 
 ```sh
-uv run python main.py "resources/sample_forms (1).docx" resources/input_date.json
+uv run docx-fill resources/sample_form.docx resources/sample_input.json --verbose
 ```
 
 The example makes paid API requests and sends document context and source data to the configured model. Review the sample and use a key with appropriate usage limits. The default model is `gpt-5.1`; `OPENAI_MODEL` can select another model available to your account. Other models have not been validated by this repository's offline tests.
@@ -41,8 +43,8 @@ The example makes paid API requests and sends document context and source data t
 For command-line help:
 
 ```sh
-uv run python main.py --help
-uv run python main.py template.docx data.json --output output/filled.docx
+uv run docx-fill --help
+uv run docx-fill template.docx data.json --output output/filled.docx
 ```
 
 ## Inputs and outputs
@@ -64,11 +66,11 @@ Supported visual markers include underscore runs (`______`), four or more dots (
 
 Table data can be a JSON array or a string containing an encoded JSON array. Arrays of objects use semantic column mappings with a heuristic fallback; arrays of strings are written into an empty cell in each data row. Prefer native arrays in new inputs. Empty or unconventional tables, mixed row types, nested tables, and heavily merged layouts require manual review.
 
-For the included example, outputs are relative to the directory where you run the command:
+The filled copy is written beside the template unless `--output` is given. The report and cache are relative to the directory where you run the command:
 
 | Output | Purpose |
 | --- | --- |
-| `resources/sample_forms (1).filled.docx` | Filled copy; the original template is not modified |
+| `resources/sample_form.filled.docx` | Filled copy beside the template; the original is not modified |
 | `docx_full_log.txt` | Analysis, mapping statistics, unfilled fields, and value-level fill log |
 | `.cache/mapping.json` | Field decisions and an input hash |
 | `.cache/table_mapping.json` | Table and column decisions with cache keys |
@@ -92,17 +94,23 @@ JSON ─────────────────────────
 
 | Module | Responsibility |
 | --- | --- |
-| `main.py` | CLI validation, pipeline orchestration, and output paths |
-| `reporting.py` | Human-readable diagnostics and value-level fill report |
-| `docx_analyzer.py` | Locate blanks and tables; build context and stable field identities |
-| `field_mapper.py` | Call the model, validate response shapes/IDs, and cache decisions |
-| `docx_filler.py` | Replace text, handle text checkboxes, and populate table rows |
+| `cli.py` | Argument parsing, logging setup, and user-facing errors |
+| `pipeline.py` | Input validation, stage orchestration, and atomic output |
+| `analyzer.py` | Locate blanks and tables; build context and stable field identities |
+| `llm.py` | The only model boundary: client settings, prompts, and reply parsing |
+| `mapper.py` | Ask for field/table/column decisions, validate them, and cache them |
+| `cache.py` | JSON decision caches with atomic writes |
+| `filler.py` | Replace text, handle text checkboxes, and populate table rows |
+| `matching.py` | Offline header/key heuristics used when the model gives no table mapping |
+| `reporting.py` | Console summary and value-level fill report |
+
+Modules live in `src/docx_form_filler/`; system prompts are versioned as Markdown in `src/docx_form_filler/prompts/`.
 
 Field IDs include position offsets to distinguish repeated blanks in the same run or cell. Field cache keys include document context, source values, and the model name. Table cache keys include table descriptions, array data, and the model; column keys include headers, source keys, and the model. Changing these inputs invalidates the relevant cache.
 
 Model output is treated as untrusted structured data: unknown field IDs, invalid value types, and unknown source keys are discarded. Invalid or absent mappings leave fields unfilled. Shape validation cannot prove that a generated value is correct or derived faithfully from the source.
 
-See [architecture and trade-offs](Architecture_and_implementation.md) for implementation details.
+See [architecture and trade-offs](docs/architecture.md) for implementation details.
 
 ## Verify without API calls
 
@@ -110,20 +118,20 @@ The automated suite replaces the external model boundary with fixtures. It build
 
 ```sh
 uv sync --frozen
-uv run pytest -q
+uv run pytest --cov
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy .
+uv run mypy
 ```
 
-Equivalent helper scripts are `./run_tests.sh`, `./ruff.sh`, and `./mypy.sh`. CI runs these checks on Python 3.13. Passing offline tests verify the application logic against the test fixtures; they do not establish live-model accuracy or Word rendering fidelity for arbitrary forms.
+CI runs these checks on Python 3.13; mypy runs in strict mode. `pre-commit install` runs Ruff on each commit. Passing offline tests verify the application logic against the test fixtures; they do not establish live-model accuracy or Word rendering fidelity for arbitrary forms.
 
 ## Data handling
 
 - The full source JSON and selected document context are sent to OpenAI through `langchain-openai`. Table requests also include table descriptions and source-column information. Use only documents and data you are authorized to send to that service.
 - Logs, filled documents, and caches can contain source values. Cache filenames containing hashes do **not** mean cached values are encrypted. Keep these artifacts local and manage their retention explicitly.
 - `.env`, caches, logs, generated documents, and Office lock files are excluded from Git. `.env.example` contains placeholders only.
-- `./clean.sh` removes local caches, including saved mapping decisions. It leaves generated DOCX documents and the report in place. A later run may incur new API requests.
+- Deleting `.cache/` removes saved mapping decisions. Generated DOCX documents and the report stay in place. A later run may incur new API requests.
 
 ## Design limits
 

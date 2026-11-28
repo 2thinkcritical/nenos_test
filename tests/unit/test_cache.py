@@ -4,8 +4,8 @@ from dataclasses import replace
 
 import pytest
 
-from docx_analyzer import PlaceholderInfo, TableInfo
-from field_mapper import _placeholder_id, load_cached_mapping, map_table_to_json_key_with_llm, save_mapping_to_cache
+from docx_form_filler.analyzer import PlaceholderInfo, TableInfo, placeholder_id
+from docx_form_filler.mapper import load_cached_mapping, map_tables_to_arrays, save_mapping_to_cache
 
 
 def placeholder(context):
@@ -15,7 +15,7 @@ def placeholder(context):
 def test_changed_context_invalidates_field_cache():
     original = placeholder("Name: ")
     save_mapping_to_cache(
-        {_placeholder_id(original): {"value": "Alex", "used_keys": ["name"]}}, [original], {"name": "Alex"}
+        {placeholder_id(original): {"value": "Alex", "used_keys": ["name"]}}, [original], {"name": "Alex"}
     )
     assert load_cached_mapping([original], {"name": "Alex"}) is not None
     assert load_cached_mapping([replace(original, context_before="Address: ")], {"name": "Alex"}) is None
@@ -39,10 +39,10 @@ def test_changed_array_schema_invalidates_table_cache(monkeypatch):
         def invoke(self, messages):
             return SimpleNamespace(content=next(responses))
 
-    monkeypatch.setattr("field_mapper.ChatOpenAI", lambda **kwargs: FakeModel())
+    monkeypatch.setattr("docx_form_filler.llm.ChatOpenAI", lambda **kwargs: FakeModel())
     tables = [TableInfo(0, ["Item"], [1], "Items")]
-    assert map_table_to_json_key_with_llm(tables, {"items": [{"name": "Apple"}]}) == {0: "items"}
-    assert map_table_to_json_key_with_llm(tables, {"items": [{"unrelated": "Apple"}]}) == {}
+    assert map_tables_to_arrays(tables, {"items": [{"name": "Apple"}]}) == {0: "items"}
+    assert map_tables_to_arrays(tables, {"items": [{"unrelated": "Apple"}]}) == {}
 
 
 def test_changed_model_invalidates_cache(monkeypatch):
@@ -53,12 +53,11 @@ def test_changed_model_invalidates_cache(monkeypatch):
     assert load_cached_mapping([field], {}) is None
 
 
-@pytest.mark.parametrize("value,keys", [("YES", ["check"]), ("CHECKED", ["unknown"])])
+@pytest.mark.parametrize(("value", "keys"), [("YES", ["check"]), ("CHECKED", ["unknown"])])
 def test_invalid_checkbox_cache_is_a_miss(value, keys):
-    from field_mapper import _placeholder_id
 
     field = replace(placeholder("Select: "), is_checkbox=True)
-    save_mapping_to_cache({_placeholder_id(field): {"value": value, "used_keys": keys}}, [field], {"check": True})
+    save_mapping_to_cache({placeholder_id(field): {"value": value, "used_keys": keys}}, [field], {"check": True})
     assert load_cached_mapping([field], {"check": True}) is None
 
 
@@ -71,8 +70,8 @@ def test_changed_table_row_count_invalidates_cache(monkeypatch):
         def invoke(self, messages):
             return SimpleNamespace(content=next(responses))
 
-    monkeypatch.setattr("field_mapper.ChatOpenAI", lambda **kwargs: FakeModel())
+    monkeypatch.setattr("docx_form_filler.llm.ChatOpenAI", lambda **kwargs: FakeModel())
     table = TableInfo(0, ["Item"], [1], "Items")
     data = {"items": [{"name": "Apple"}]}
-    assert map_table_to_json_key_with_llm([table], data) == {0: "items"}
-    assert map_table_to_json_key_with_llm([replace(table, data_row_indices=[1, 2])], data) == {}
+    assert map_tables_to_arrays([table], data) == {0: "items"}
+    assert map_tables_to_arrays([replace(table, data_row_indices=[1, 2])], data) == {}

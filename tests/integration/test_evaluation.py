@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage
 
-import field_mapper
+from docx_form_filler import llm
 from evaluation.run import evaluate
 
 CORPUS = Path(__file__).resolve().parents[2] / "evaluation" / "corpus.json"
@@ -48,7 +48,7 @@ def test_live_provider_failure_leaves_case_unscored(tmp_path, monkeypatch, stage
         def invoke(self, messages):
             raise ConnectionError("sensitive transport details")
 
-    monkeypatch.setattr(field_mapper, "ChatOpenAI", FailingModel)
+    monkeypatch.setattr(llm, "ChatOpenAI", FailingModel)
     result = evaluate(corpus, output, mode="live")
 
     assert result["live_model_accuracy"] is None
@@ -78,7 +78,7 @@ def test_live_content_mismatch_is_scored_with_observed_usage(tmp_path, monkeypat
             usage = {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12} if include_usage else None
             return AIMessage(content="[]", usage_metadata=usage)
 
-    monkeypatch.setattr(field_mapper, "ChatOpenAI", Model)
+    monkeypatch.setattr(llm, "ChatOpenAI", Model)
     result = evaluate(corpus, tmp_path / "result", mode="live")
 
     assert result["api_calls"] == result["successful_model_responses"] == 1
